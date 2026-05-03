@@ -8,6 +8,7 @@ import { TeamModule } from "./team/team.module";
 import { CampaignsModule } from "./campaigns/campaigns.module";
 import { BillingModule } from "./billing/billing.module";
 import { TiktokModule } from "./tiktok/tiktok.module";
+import { ExportModule } from "./export/export.module";
 import { TenantMiddleware } from "./common/tenant.middleware";
 
 @Module({
@@ -21,6 +22,7 @@ import { TenantMiddleware } from "./common/tenant.middleware";
     CampaignsModule,
     BillingModule,
     TiktokModule,
+    ExportModule,
   ],
 })
 export class AppModule implements NestModule {

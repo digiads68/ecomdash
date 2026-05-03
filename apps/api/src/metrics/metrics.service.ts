@@ -99,6 +99,32 @@ export class MetricsService {
     }));
   }
 
+  async getShopSummary(orgId: string, shopId: string, from: Date, to: Date) {
+    const periodMs = to.getTime() - from.getTime();
+    const priorFrom = new Date(from.getTime() - periodMs);
+
+    const [curr, prior] = await Promise.all([
+      this.fetchPeriodMetrics(orgId, shopId, from, to),
+      this.fetchPeriodMetrics(orgId, shopId, priorFrom, from),
+    ]);
+
+    const pct = (c: number, p: number) =>
+      p === 0 ? 0 : Math.round(((c - p) / p) * 100 * 10) / 10;
+
+    const avgOrderValue = curr.orders > 0 ? curr.revenue / curr.orders : 0;
+    const priorAov = prior.orders > 0 ? prior.revenue / prior.orders : 0;
+
+    return {
+      revenue: curr.revenue,
+      revenueChange: pct(curr.revenue, prior.revenue),
+      orders: curr.orders,
+      ordersChange: pct(curr.orders, prior.orders),
+      avgOrderValue,
+      avgOrderValueChange: pct(avgOrderValue, priorAov),
+      returnRate: 0, // requires return orders data — placeholder
+    };
+  }
+
   async getTopProducts(
     orgId: string,
     shopId: string,
