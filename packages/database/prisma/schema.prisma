@@ -156,10 +156,45 @@ model Subscription {
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 }
 
-enum Plan               { STARTER PRO ENTERPRISE }
-enum OrgStatus          { ACTIVE SUSPENDED }
-enum MemberRole         { OWNER ADMIN MEMBER VIEWER }
-enum MemberStatus       { ACTIVE INVITED SUSPENDED }
-enum SyncStatus         { PENDING SYNCING SYNCED ERROR }
-enum AlertState         { FIRING RESOLVED }
-enum SubscriptionStatus { ACTIVE PAST_DUE CANCELED TRIALING }
+enum Plan {
+  STARTER
+  PRO
+  ENTERPRISE
+}
+
+enum OrgStatus {
+  ACTIVE
+  SUSPENDED
+}
+
+enum MemberRole {
+  OWNER
+  ADMIN
+  MEMBER
+  VIEWER
+}
+
+enum MemberStatus {
+  ACTIVE
+  INVITED
+  SUSPENDED
+}
+
+enum SyncStatus {
+  PENDING
+  SYNCING
+  SYNCED
+  ERROR
+}
+
+enum AlertState {
+  FIRING
+  RESOLVED
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  TRIALING
+}

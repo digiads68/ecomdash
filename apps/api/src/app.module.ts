@@ -5,6 +5,9 @@ import { AuthModule } from "./auth/auth.module";
 import { MetricsModule } from "./metrics/metrics.module";
 import { AlertsModule } from "./alerts/alerts.module";
 import { TeamModule } from "./team/team.module";
+import { CampaignsModule } from "./campaigns/campaigns.module";
+import { BillingModule } from "./billing/billing.module";
+import { TiktokModule } from "./tiktok/tiktok.module";
 import { TenantMiddleware } from "./common/tenant.middleware";
 
 @Module({
@@ -15,6 +18,9 @@ import { TenantMiddleware } from "./common/tenant.middleware";
     MetricsModule,
     AlertsModule,
     TeamModule,
+    CampaignsModule,
+    BillingModule,
+    TiktokModule,
   ],
 })
 export class AppModule implements NestModule {
