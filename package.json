@@ -1,0 +1,24 @@
+{
+  "name": "ecomdash",
+  "private": true,
+  "version": "0.0.1",
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "test": "turbo run test",
+    "lint": "turbo run lint",
+    "db:generate": "turbo run db:generate --filter=@ecomdash/database",
+    "db:migrate": "turbo run db:migrate --filter=@ecomdash/database",
+    "db:seed": "turbo run db:seed --filter=@ecomdash/database"
+  },
+  "devDependencies": {
+    "turbo": "^2.0.0",
+    "typescript": "^5.4.0",
+    "prettier": "^3.3.0"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=9.0.0"
+  },
+  "packageManager": "pnpm@9.4.0"
+}

@@ -1,0 +1,165 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Organization {
+  id        String    @id @default(cuid())
+  name      String
+  slug      String    @unique
+  plan      Plan      @default(STARTER)
+  status    OrgStatus @default(ACTIVE)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  members      OrganizationMember[]
+  shops        Shop[]
+  adAccounts   AdAccount[]
+  alertRules   AlertRule[]
+  subscription Subscription?
+}
+
+model User {
+  id          String   @id @default(cuid())
+  clerkUserId String   @unique
+  email       String   @unique
+  name        String?
+  avatarUrl   String?
+  createdAt   DateTime @default(now())
+
+  memberships OrganizationMember[]
+}
+
+model OrganizationMember {
+  id             String       @id @default(cuid())
+  organizationId String
+  userId         String?
+  inviteEmail    String?
+  role           MemberRole
+  status         MemberStatus @default(ACTIVE)
+  permissions    Json         @default("{}")
+  createdAt      DateTime     @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User?        @relation(fields: [userId], references: [id])
+
+  @@unique([organizationId, userId])
+}
+
+model Shop {
+  id                    String     @id @default(cuid())
+  organizationId        String
+  tiktokShopId          String     @unique
+  name                  String
+  region                String     @default("VN")
+  accessTokenEncrypted  String
+  refreshTokenEncrypted String
+  tokenExpiresAt        DateTime?
+  syncStatus            SyncStatus @default(PENDING)
+  lastSyncedAt          DateTime?
+  createdAt             DateTime   @default(now())
+
+  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  adAccounts   AdAccount[]
+  alertRules   AlertRule[]
+  products     Product[]
+}
+
+model AdAccount {
+  id                    String     @id @default(cuid())
+  organizationId        String
+  shopId                String?
+  tiktokAdvertiserId    String     @unique
+  name                  String
+  accessTokenEncrypted  String
+  refreshTokenEncrypted String
+  tokenExpiresAt        DateTime?
+  syncStatus            SyncStatus @default(PENDING)
+  lastSyncedAt          DateTime?
+  createdAt             DateTime   @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  shop         Shop?        @relation(fields: [shopId], references: [id])
+  campaigns    Campaign[]
+}
+
+model Product {
+  id             String   @id @default(cuid())
+  shopId         String
+  tiktokProductId String  @unique
+  name           String
+  thumbnailUrl   String?
+  status         String   @default("ACTIVE")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  shop Shop @relation(fields: [shopId], references: [id], onDelete: Cascade)
+}
+
+model Campaign {
+  id               String   @id @default(cuid())
+  adAccountId      String
+  tiktokCampaignId String   @unique
+  name             String
+  status           String   @default("ACTIVE")
+  objective        String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  adAccount AdAccount @relation(fields: [adAccountId], references: [id], onDelete: Cascade)
+}
+
+model AlertRule {
+  id             String   @id @default(cuid())
+  organizationId String
+  shopId         String?
+  name           String
+  conditions     Json
+  actions        Json
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  shop         Shop?           @relation(fields: [shopId], references: [id])
+  instances    AlertInstance[]
+}
+
+model AlertInstance {
+  id         String     @id @default(cuid())
+  ruleId     String
+  shopId     String?
+  state      AlertState
+  metadata   Json       @default("{}")
+  firedAt    DateTime   @default(now())
+  resolvedAt DateTime?
+  acknowledgedAt DateTime?
+
+  rule AlertRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+}
+
+model Subscription {
+  id                   String             @id @default(cuid())
+  organizationId       String             @unique
+  plan                 Plan
+  status               SubscriptionStatus
+  stripeSubscriptionId String?
+  stripeCustomerId     String?
+  currentPeriodEnd     DateTime?
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+}
+
+enum Plan               { STARTER PRO ENTERPRISE }
+enum OrgStatus          { ACTIVE SUSPENDED }
+enum MemberRole         { OWNER ADMIN MEMBER VIEWER }
+enum MemberStatus       { ACTIVE INVITED SUSPENDED }
+enum SyncStatus         { PENDING SYNCING SYNCED ERROR }
+enum AlertState         { FIRING RESOLVED }
+enum SubscriptionStatus { ACTIVE PAST_DUE CANCELED TRIALING }
