@@ -30,7 +30,22 @@ export class TiktokService {
     return { url };
   }
 
+  private async checkShopLimit(orgId: string) {
+    const org = await prisma.organization.findUnique({
+      where: { id: orgId },
+      select: { plan: true, _count: { select: { shops: true } } },
+    });
+    const limits: Record<string, number> = { STARTER: 1, PRO: 5, ENTERPRISE: Infinity };
+    const limit = limits[org?.plan ?? "STARTER"] ?? 1;
+    if ((org?._count.shops ?? 0) >= limit) {
+      throw new BadRequestException(
+        `Gói ${org?.plan} chỉ hỗ trợ tối đa ${limit} shop. Nâng cấp để thêm shop.`
+      );
+    }
+  }
+
   async connectShop(orgId: string, code: string, tiktokShopId: string) {
+    await this.checkShopLimit(orgId);
     const appKey = process.env.TIKTOK_APP_KEY || "";
     const appSecret = process.env.TIKTOK_APP_SECRET || "";
 

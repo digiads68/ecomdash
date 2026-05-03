@@ -19,7 +19,7 @@ export default function AnalyticsPage() {
     queryKey: ["revenue-trend", selectedShopId, dateRange],
     queryFn: () =>
       fetchWithAuth<any[]>(
-        `/metrics/revenue-trend?shopId=${selectedShopId}&from=${from}&to=${to}&granularity=day`
+        `/metrics/revenue-trend?shopId=${selectedShopId}&from=${from.toISOString()}&to=${to.toISOString()}&granularity=day`
       ),
     enabled: !!selectedShopId,
     staleTime: 60_000,
@@ -30,7 +30,7 @@ export default function AnalyticsPage() {
     queryKey: ["campaigns", selectedAdAccountId, dateRange],
     queryFn: () =>
       fetchWithAuth<any[]>(
-        `/campaigns?adAccountId=${selectedAdAccountId}&from=${from}&to=${to}`
+        `/campaigns?adAccountId=${selectedAdAccountId}&from=${from.toISOString()}&to=${to.toISOString()}`
       ),
     enabled: !!selectedAdAccountId,
     staleTime: 60_000,
