@@ -16,9 +16,11 @@ export class TiktokController {
   connectShop(
     @Req() req: any,
     @Body("code") code: string,
-    @Body("shopId") shopId: string
+    @Body("shopId") shopId: string,
+    @Body("orgId") bodyOrgId?: string
   ) {
-    return this.tiktokService.connectShop(req.orgId, code, shopId);
+    const orgId = req.orgId || bodyOrgId;
+    return this.tiktokService.connectShop(orgId, code, shopId);
   }
 
   @Get("shops")
@@ -43,9 +45,11 @@ export class TiktokController {
     @Req() req: any,
     @Body("code") code: string,
     @Body("advertiserId") advertiserId: string,
-    @Body("shopId") shopId?: string
+    @Body("shopId") shopId?: string,
+    @Body("orgId") bodyOrgId?: string
   ) {
-    return this.tiktokService.connectAdAccount(req.orgId, code, advertiserId, shopId);
+    const orgId = req.orgId || bodyOrgId;
+    return this.tiktokService.connectAdAccount(orgId, code, advertiserId, shopId);
   }
 
   @Get("ad-accounts")
