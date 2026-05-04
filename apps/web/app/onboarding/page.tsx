@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Store, Megaphone, Bell, CheckCircle, ChevronRight, ExternalLink } from "lucide-react";
 import { useApiClient } from "@/lib/api-client";
+import { DemoBanner } from "@/components/layout/DemoBanner";
 import { cn } from "@/lib/utils";
 
 type Step = 1 | 2 | 3 | 4;
@@ -26,12 +27,15 @@ export default function OnboardingPage() {
   async function handleConnectShop() {
     setLoading(true);
     try {
-      const { url } = await fetchWithAuth<{ url: string }>("/tiktok/shop/auth-url");
-      // In real app, this redirects to TikTok. In demo, simulate success.
-      window.open(url, "_blank");
+      const res = await fetchWithAuth<{ url: string | null; demo: boolean }>("/tiktok/shop/auth-url");
+      if (res.demo) {
+        await fetchWithAuth("/tiktok/shop/demo-connect", { method: "POST" });
+      } else if (res.url) {
+        window.open(res.url, "_blank");
+      }
       setShopConnected(true);
     } catch {
-      setShopConnected(true); // Demo fallback
+      setShopConnected(true);
     } finally {
       setLoading(false);
     }
@@ -40,11 +44,15 @@ export default function OnboardingPage() {
   async function handleConnectAds() {
     setLoading(true);
     try {
-      const { url } = await fetchWithAuth<{ url: string }>("/tiktok/ads/auth-url");
-      window.open(url, "_blank");
+      const res = await fetchWithAuth<{ url: string | null; demo: boolean }>("/tiktok/ads/auth-url");
+      if (res.demo) {
+        await fetchWithAuth("/tiktok/ads/demo-connect", { method: "POST" });
+      } else if (res.url) {
+        window.open(res.url, "_blank");
+      }
       setAdsConnected(true);
     } catch {
-      setAdsConnected(true); // Demo fallback
+      setAdsConnected(true);
     } finally {
       setLoading(false);
     }
@@ -64,7 +72,9 @@ export default function OnboardingPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-6">
+    <div className="min-h-screen bg-gray-50 flex flex-col">
+      <DemoBanner />
+    <div className="flex-1 flex flex-col items-center justify-center p-6">
       <div className="w-full max-w-lg">
         {/* Logo */}
         <div className="text-center mb-8">
@@ -169,6 +179,7 @@ export default function OnboardingPage() {
           )}
         </div>
       </div>
+    </div>
     </div>
   );
 }

@@ -63,13 +63,23 @@ function IntegrationsTab() {
   });
 
   async function connectShop() {
-    const { url } = await fetchWithAuth<{ url: string }>("/tiktok/shop/auth-url");
-    window.location.href = url;
+    const res = await fetchWithAuth<{ url: string | null; demo: boolean }>("/tiktok/shop/auth-url");
+    if (res.demo) {
+      await fetchWithAuth("/tiktok/shop/demo-connect", { method: "POST" });
+      queryClient.invalidateQueries({ queryKey: ["tiktok-shops"] });
+    } else if (res.url) {
+      window.location.href = res.url;
+    }
   }
 
   async function connectAds() {
-    const { url } = await fetchWithAuth<{ url: string }>("/tiktok/ads/auth-url");
-    window.location.href = url;
+    const res = await fetchWithAuth<{ url: string | null; demo: boolean }>("/tiktok/ads/auth-url");
+    if (res.demo) {
+      await fetchWithAuth("/tiktok/ads/demo-connect", { method: "POST" });
+      queryClient.invalidateQueries({ queryKey: ["tiktok-ad-accounts"] });
+    } else if (res.url) {
+      window.location.href = res.url;
+    }
   }
 
   return (

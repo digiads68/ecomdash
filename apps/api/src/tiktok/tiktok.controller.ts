@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Query, Req, Delete, Param } from "@nestjs/common";
+import { Controller, Get, Post, Body, Req, Delete, Param } from "@nestjs/common";
 import { TiktokService } from "./tiktok.service";
 
 @Controller("tiktok")
@@ -10,6 +10,11 @@ export class TiktokController {
   @Get("shop/auth-url")
   getShopAuthUrl(@Req() req: any) {
     return this.tiktokService.getShopAuthUrl(req.orgId);
+  }
+
+  @Post("shop/demo-connect")
+  demoConnectShop(@Req() req: any) {
+    return this.tiktokService.createDemoShop(req.orgId);
   }
 
   @Post("shop/callback")
@@ -38,6 +43,11 @@ export class TiktokController {
   @Get("ads/auth-url")
   getAdsAuthUrl(@Req() req: any) {
     return this.tiktokService.getAdsAuthUrl(req.orgId);
+  }
+
+  @Post("ads/demo-connect")
+  demoConnectAds(@Req() req: any) {
+    return this.tiktokService.createDemoAdAccount(req.orgId);
   }
 
   @Post("ads/callback")

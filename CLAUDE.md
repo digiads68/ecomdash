@@ -15,7 +15,7 @@ packages/shared/     Shared TypeScript types/DTOs
 infra/docker/    PostgreSQL and ClickHouse init SQL
 ```
 
-## Quick Start
+## Quick Start (Demo Mode — no TikTok credentials needed)
 
 ```bash
 # 1. Start infrastructure
@@ -24,16 +24,32 @@ docker compose up -d
 # 2. Install dependencies
 pnpm install
 
-# 3. Run migrations and seed
+# 3. Copy env and use demo defaults
+cp .env.example .env
+# .env.example already has DEMO_MODE=true and a safe demo ENCRYPTION_KEY
+
+# 4. Run migrations and seed PostgreSQL
 pnpm --filter @ecomdash/database db:migrate
 pnpm --filter @ecomdash/database db:seed
 
-# 4. Seed ClickHouse with 30 days of synthetic data
-cd apps/workers && python seed_clickhouse.py
+# 5. Seed ClickHouse with 30 days of synthetic data
+cd apps/workers && python seed_clickhouse.py && cd ../..
 
-# 5. Start all services
+# 6. Start all services
 pnpm dev
 ```
+
+In demo mode:
+- Clicking "Kết nối TikTok Shop / Ads" creates a fake shop/ad account instantly (no OAuth popup)
+- The dashboard shows 30 days of synthetic data from the seed script
+- A yellow banner at the top reminds users they are in demo mode
+
+## Production Setup
+
+1. Register TikTok Shop app at `https://partner.tiktokshop.com`
+2. Register TikTok Ads app at `https://ads.tiktok.com/marketing_api/apps`
+3. Set `DEMO_MODE=false` and `NEXT_PUBLIC_DEMO_MODE=false` in `.env`
+4. Fill in all `TIKTOK_*` credentials and set `TIKTOK_REDIRECT_URI` to match your domain
 
 ## Environment Variables
 

@@ -8,8 +8,14 @@ const TIKTOK_SHOP_TOKEN_URL = "https://auth.tiktok-shops.com/api/v2/token/get";
 const TIKTOK_ADS_AUTH_URL = "https://ads.tiktok.com/marketing_api/auth";
 const TIKTOK_ADS_TOKEN_URL = "https://business-api.tiktok.com/open_api/v1.3/oauth2/access_token/";
 
+function isDemoMode(): boolean {
+  return process.env.DEMO_MODE === "true";
+}
+
 function encrypt(plaintext: string): string {
-  const key = Buffer.from(process.env.ENCRYPTION_KEY || "", "base64");
+  // Fallback demo key when ENCRYPTION_KEY is not set
+  const rawKey = process.env.ENCRYPTION_KEY || "bXlzdXBlcnNlY3JldGtleWZvcmRldmVsb3BtZW50MTI=";
+  const key = Buffer.from(rawKey, "base64");
   const nonce = crypto.randomBytes(12);
   const cipher = crypto.createCipheriv("aes-256-gcm", key, nonce);
   const encrypted = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final()]);
@@ -22,12 +28,33 @@ export class TiktokService {
   // ── TikTok Shop ────────────────────────────────────────────────────────────
 
   getShopAuthUrl(orgId: string) {
+    if (isDemoMode()) {
+      return { url: null, demo: true };
+    }
     const appKey = process.env.TIKTOK_APP_KEY || "";
     const redirectUri = process.env.TIKTOK_REDIRECT_URI || "";
     const state = Buffer.from(JSON.stringify({ orgId, type: "shop" })).toString("base64");
-
     const url = `${TIKTOK_SHOP_AUTH_URL}?app_key=${appKey}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${state}`;
-    return { url };
+    return { url, demo: false };
+  }
+
+  async createDemoShop(orgId: string) {
+    await this.checkShopLimit(orgId);
+    const demoId = `demo_shop_${Date.now()}`;
+    const shop = await prisma.shop.create({
+      data: {
+        organizationId: orgId,
+        tiktokShopId: demoId,
+        name: "Demo Shop (VN)",
+        region: "VN",
+        accessTokenEncrypted: encrypt("demo_access_token"),
+        refreshTokenEncrypted: encrypt("demo_refresh_token"),
+        tokenExpiresAt: new Date(Date.now() + 365 * 24 * 3600 * 1000),
+        syncStatus: "SYNCED",
+        lastSyncedAt: new Date(),
+      },
+    });
+    return { shopId: shop.id, name: shop.name, syncStatus: shop.syncStatus };
   }
 
   private async checkShopLimit(orgId: string) {
@@ -60,7 +87,6 @@ export class TiktokService {
     const { access_token, refresh_token, access_token_expire_in } = data.data;
     const tokenExpiresAt = new Date(Date.now() + access_token_expire_in * 1000);
 
-    // Fetch shop name from TikTok API
     let shopName = tiktokShopId;
     try {
       const shopRes = await axios.get(
@@ -69,9 +95,7 @@ export class TiktokService {
       );
       const shop = shopRes.data?.data?.shops?.find((s: any) => s.id === tiktokShopId);
       if (shop) shopName = shop.name;
-    } catch {
-      // fallback to tiktokShopId
-    }
+    } catch { /* fallback */ }
 
     const shop = await prisma.shop.upsert({
       where: { tiktokShopId },
@@ -115,20 +139,34 @@ export class TiktokService {
   // ── TikTok Ads ─────────────────────────────────────────────────────────────
 
   getAdsAuthUrl(orgId: string) {
+    if (isDemoMode()) {
+      return { url: null, demo: true };
+    }
     const appId = process.env.TIKTOK_ADS_APP_ID || "";
     const redirectUri = process.env.TIKTOK_REDIRECT_URI || "";
     const state = Buffer.from(JSON.stringify({ orgId, type: "ads" })).toString("base64");
-
     const url = `${TIKTOK_ADS_AUTH_URL}?app_id=${appId}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${state}`;
-    return { url };
+    return { url, demo: false };
   }
 
-  async connectAdAccount(
-    orgId: string,
-    code: string,
-    advertiserId: string,
-    shopId?: string
-  ) {
+  async createDemoAdAccount(orgId: string) {
+    const demoId = `demo_advertiser_${Date.now()}`;
+    const account = await prisma.adAccount.create({
+      data: {
+        organizationId: orgId,
+        tiktokAdvertiserId: demoId,
+        name: "Demo Ads Account (VN)",
+        accessTokenEncrypted: encrypt("demo_access_token"),
+        refreshTokenEncrypted: encrypt("demo_access_token"),
+        tokenExpiresAt: new Date(Date.now() + 365 * 24 * 3600 * 1000),
+        syncStatus: "SYNCED",
+        lastSyncedAt: new Date(),
+      },
+    });
+    return { accountId: account.id, name: account.name, syncStatus: account.syncStatus };
+  }
+
+  async connectAdAccount(orgId: string, code: string, advertiserId: string, shopId?: string) {
     const appId = process.env.TIKTOK_ADS_APP_ID || "";
     const appSecret = process.env.TIKTOK_ADS_APP_SECRET || "";
 
@@ -144,7 +182,6 @@ export class TiktokService {
 
     const { access_token } = data.data;
 
-    // Fetch advertiser name
     let accountName = advertiserId;
     try {
       const infoRes = await axios.get(
@@ -156,15 +193,13 @@ export class TiktokService {
       );
       const info = infoRes.data?.data?.list?.[0];
       if (info) accountName = info.advertiser_name;
-    } catch {
-      // fallback
-    }
+    } catch { /* fallback */ }
 
     const account = await prisma.adAccount.upsert({
       where: { tiktokAdvertiserId: advertiserId },
       update: {
         accessTokenEncrypted: encrypt(access_token),
-        refreshTokenEncrypted: encrypt(access_token), // TikTok Ads uses long-lived tokens
+        refreshTokenEncrypted: encrypt(access_token),
         syncStatus: "PENDING",
         name: accountName,
         shopId: shopId || null,
