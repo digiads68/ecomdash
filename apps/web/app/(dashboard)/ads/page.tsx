@@ -7,6 +7,7 @@ import { useShopStore, getDateRangeValues } from "@/lib/stores/shop-store";
 import { formatVND, formatVNDCompact, formatNumber, formatROAS } from "@/lib/format";
 import { MetricCard } from "@/components/metrics/MetricCard";
 import { DateRangePicker } from "@/components/metrics/DateRangePicker";
+import { BudgetForecastWidget } from "@/components/metrics/BudgetForecastWidget";
 import { cn } from "@/lib/utils";
 
 interface Campaign {
@@ -146,6 +147,9 @@ export default function AdsPage() {
           loading={isLoading && !campaigns}
         />
       </div>
+
+      {/* Budget Forecast Widget */}
+      <BudgetForecastWidget adAccountId={selectedAdAccountId} />
 
       {/* Campaigns Table */}
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">

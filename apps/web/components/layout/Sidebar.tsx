@@ -10,12 +10,18 @@ import {
   Users,
   Settings,
   TrendingUp,
+  Package2,
+  ClipboardList,
+  UserCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const navItems = [
   { href: "/overview", label: "Tổng quan", icon: LayoutDashboard },
   { href: "/shop", label: "Shop", icon: ShoppingBag },
+  { href: "/orders", label: "Đơn hàng", icon: ClipboardList },
+  { href: "/products", label: "Sản phẩm", icon: Package2 },
+  { href: "/customers", label: "Khách hàng", icon: UserCircle },
   { href: "/ads", label: "Quảng cáo", icon: Megaphone },
   { href: "/analytics", label: "Phân tích", icon: TrendingUp },
   { href: "/alerts", label: "Cảnh báo", icon: Bell },

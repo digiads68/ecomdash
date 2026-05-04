@@ -2,11 +2,11 @@
 
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Store, Megaphone, Users, CreditCard, Plus, Trash2, RefreshCw, CheckCircle2, XCircle } from "lucide-react";
+import { Store, Megaphone, Users, CreditCard, Plus, Trash2, RefreshCw, CheckCircle2, XCircle, FileText } from "lucide-react";
 import { useApiClient } from "@/lib/api-client";
 import { cn } from "@/lib/utils";
 
-type Tab = "integrations" | "team" | "billing";
+type Tab = "integrations" | "team" | "billing" | "reports";
 
 // ── Tab Navigation ────────────────────────────────────────────────────────────
 
@@ -14,6 +14,7 @@ const TABS: { id: Tab; label: string; icon: React.ElementType }[] = [
   { id: "integrations", label: "Tích hợp", icon: Store },
   { id: "team", label: "Nhóm", icon: Users },
   { id: "billing", label: "Thanh toán", icon: CreditCard },
+  { id: "reports", label: "Báo cáo", icon: FileText },
 ];
 
 // ── Status Badge ──────────────────────────────────────────────────────────────
@@ -446,6 +447,227 @@ function BillingTab() {
   );
 }
 
+// ── Reports Tab ───────────────────────────────────────────────────────────────
+
+interface ReportConfigDto {
+  id: string;
+  shopId: string;
+  frequency: string;
+  dayOfWeek: number | null;
+  dayOfMonth: number | null;
+  recipientEmail: string;
+  metrics: string[];
+  isActive: boolean;
+  lastSentAt: string | null;
+  shop: { name: string };
+}
+
+interface ShopDto2 { id: string; name: string }
+
+const FREQ_LABELS: Record<string, string> = {
+  daily: "Hàng ngày",
+  weekly: "Hàng tuần",
+  monthly: "Hàng tháng",
+};
+
+function ReportsTab() {
+  const fetchWithAuth = useApiClient();
+  const queryClient = useQueryClient();
+  const [showForm, setShowForm] = useState(false);
+  const [formData, setFormData] = useState({
+    shopId: "",
+    frequency: "weekly",
+    recipientEmail: "",
+    dayOfWeek: 1,
+  });
+
+  const { data: configs = [], isLoading } = useQuery<ReportConfigDto[]>({
+    queryKey: ["report-configs"],
+    queryFn: () => fetchWithAuth<ReportConfigDto[]>("/reports/configs"),
+  });
+
+  const { data: shops = [] } = useQuery<ShopDto2[]>({
+    queryKey: ["tiktok-shops"],
+    queryFn: () => fetchWithAuth<ShopDto2[]>("/tiktok/shops"),
+  });
+
+  const createMutation = useMutation({
+    mutationFn: () =>
+      fetchWithAuth("/reports/configs", {
+        method: "POST",
+        body: JSON.stringify({
+          shopId: formData.shopId || shops[0]?.id,
+          frequency: formData.frequency,
+          recipientEmail: formData.recipientEmail,
+          dayOfWeek: formData.frequency === "weekly" ? formData.dayOfWeek : undefined,
+        }),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["report-configs"] });
+      setShowForm(false);
+      setFormData({ shopId: "", frequency: "weekly", recipientEmail: "", dayOfWeek: 1 });
+    },
+  });
+
+  const toggleMutation = useMutation({
+    mutationFn: ({ id, isActive }: { id: string; isActive: boolean }) =>
+      fetchWithAuth(`/reports/configs/${id}`, { method: "PUT", body: JSON.stringify({ isActive }) }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["report-configs"] }),
+  });
+
+  const removeMutation = useMutation({
+    mutationFn: (id: string) => fetchWithAuth(`/reports/configs/${id}`, { method: "DELETE" }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["report-configs"] }),
+  });
+
+  const DAY_NAMES = ["CN", "T2", "T3", "T4", "T5", "T6", "T7"];
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="text-sm font-semibold text-gray-900">Báo cáo tự động</h3>
+          <p className="text-xs text-gray-400 mt-0.5">Nhận tóm tắt hiệu suất định kỳ qua email</p>
+        </div>
+        <button
+          onClick={() => setShowForm(!showForm)}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary-600 text-white text-xs font-medium hover:bg-primary-700 transition-colors"
+        >
+          <Plus className="w-3.5 h-3.5" />
+          Tạo báo cáo
+        </button>
+      </div>
+
+      {showForm && (
+        <div className="bg-gray-50 rounded-xl border border-gray-200 p-5 space-y-4">
+          <h4 className="text-sm font-medium text-gray-900">Cấu hình báo cáo mới</h4>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Shop</label>
+              <select
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 outline-none"
+                value={formData.shopId || shops[0]?.id || ""}
+                onChange={(e) => setFormData({ ...formData, shopId: e.target.value })}
+              >
+                {shops.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Tần suất</label>
+              <select
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 outline-none"
+                value={formData.frequency}
+                onChange={(e) => setFormData({ ...formData, frequency: e.target.value })}
+              >
+                <option value="daily">Hàng ngày</option>
+                <option value="weekly">Hàng tuần</option>
+                <option value="monthly">Hàng tháng</option>
+              </select>
+            </div>
+            {formData.frequency === "weekly" && (
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Ngày trong tuần</label>
+                <div className="flex gap-1.5">
+                  {DAY_NAMES.map((d, i) => (
+                    <button
+                      key={i}
+                      type="button"
+                      onClick={() => setFormData({ ...formData, dayOfWeek: i })}
+                      className={cn(
+                        "w-9 h-9 rounded-lg text-xs font-medium transition-colors",
+                        formData.dayOfWeek === i ? "bg-primary-600 text-white" : "bg-white border border-gray-300 text-gray-600 hover:bg-gray-50"
+                      )}
+                    >
+                      {d}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Email nhận báo cáo</label>
+              <input
+                type="email"
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 outline-none"
+                placeholder="your@email.com"
+                value={formData.recipientEmail}
+                onChange={(e) => setFormData({ ...formData, recipientEmail: e.target.value })}
+              />
+            </div>
+          </div>
+          <div className="flex gap-2 justify-end">
+            <button
+              onClick={() => setShowForm(false)}
+              className="px-4 py-2 rounded-lg border border-gray-300 text-sm text-gray-600 hover:bg-gray-50"
+            >
+              Hủy
+            </button>
+            <button
+              onClick={() => createMutation.mutate()}
+              disabled={createMutation.isPending || !formData.recipientEmail}
+              className="px-4 py-2 rounded-lg bg-primary-600 text-white text-sm font-medium hover:bg-primary-700 disabled:opacity-60 transition-colors"
+            >
+              {createMutation.isPending ? "Đang tạo..." : "Tạo báo cáo"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {isLoading ? (
+        <div className="space-y-2">
+          {[1, 2].map((i) => <div key={i} className="h-16 bg-gray-100 rounded-xl animate-pulse" />)}
+        </div>
+      ) : configs.length === 0 ? (
+        <div className="py-12 text-center bg-gray-50 rounded-xl border border-dashed border-gray-200">
+          <FileText className="w-6 h-6 text-gray-300 mx-auto mb-2" />
+          <p className="text-sm text-gray-500">Chưa có báo cáo tự động nào</p>
+          <button onClick={() => setShowForm(true)} className="mt-2 text-xs text-primary-600 font-medium hover:text-primary-700">
+            + Tạo báo cáo đầu tiên
+          </button>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {configs.map((cfg) => (
+            <div key={cfg.id} className="flex items-center justify-between bg-white rounded-xl border border-gray-200 px-5 py-3.5">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium text-gray-900">{cfg.shop?.name}</span>
+                  <span className="text-xs text-gray-400">→</span>
+                  <span className="text-sm text-gray-600">{cfg.recipientEmail}</span>
+                </div>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  {FREQ_LABELS[cfg.frequency]}
+                  {cfg.lastSentAt && ` · Gửi lần cuối: ${new Date(cfg.lastSentAt).toLocaleDateString("vi-VN")}`}
+                </p>
+              </div>
+              <div className="flex items-center gap-3">
+                <span className={cn(
+                  "text-xs font-semibold px-2 py-0.5 rounded-full",
+                  cfg.isActive ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"
+                )}>
+                  {cfg.isActive ? "Đang bật" : "Đã tắt"}
+                </span>
+                <button
+                  onClick={() => toggleMutation.mutate({ id: cfg.id, isActive: !cfg.isActive })}
+                  className="text-xs text-primary-600 hover:text-primary-700 font-medium"
+                >
+                  {cfg.isActive ? "Tắt" : "Bật"}
+                </button>
+                <button
+                  onClick={() => removeMutation.mutate(cfg.id)}
+                  className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function SettingsPage() {
@@ -478,6 +700,7 @@ export default function SettingsPage() {
       {tab === "integrations" && <IntegrationsTab />}
       {tab === "team" && <TeamTab />}
       {tab === "billing" && <BillingTab />}
+      {tab === "reports" && <ReportsTab />}
     </div>
   );
 }

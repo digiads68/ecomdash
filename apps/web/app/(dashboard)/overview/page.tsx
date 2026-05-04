@@ -3,6 +3,7 @@ import { RevenueTrendChart } from "@/components/charts/RevenueTrendChart";
 import { CampaignROASChart } from "@/components/charts/CampaignROASChart";
 import { TopProductsTable } from "@/components/tables/TopProductsTable";
 import { DateRangePicker } from "@/components/metrics/DateRangePicker";
+import { ProfitCalculator } from "@/components/metrics/ProfitCalculator";
 
 export default function OverviewPage() {
   return (
@@ -18,13 +19,16 @@ export default function OverviewPage() {
       {/* Row 1: 4 KPI Cards */}
       <OverviewMetricCards />
 
-      {/* Row 2: 2 Charts side by side */}
+      {/* Row 2: Profit Calculator */}
+      <ProfitCalculator />
+
+      {/* Row 3: 2 Charts side by side */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <RevenueTrendChart />
         <CampaignROASChart />
       </div>
 
-      {/* Row 3: Top Products Table */}
+      {/* Row 4: Top Products Table */}
       <TopProductsTable />
     </div>
   );
