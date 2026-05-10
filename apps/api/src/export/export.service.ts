@@ -99,7 +99,7 @@ export class ExportService {
     // Enrich with campaign names from Postgres
     const campaignIds = rows.map((r) => r.campaign_id).filter(Boolean);
     const campaigns = await prisma.campaign.findMany({
-      where: { tiktokCampaignId: { in: campaignIds }, organizationId: orgId },
+      where: { tiktokCampaignId: { in: campaignIds }, adAccount: { organizationId: orgId } },
       select: { tiktokCampaignId: true, name: true },
     });
     const nameMap = Object.fromEntries(campaigns.map((c) => [c.tiktokCampaignId, c.name]));

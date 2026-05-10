@@ -30,7 +30,7 @@ export class TeamService {
       data: {
         organizationId: orgId,
         inviteEmail: email,
-        role,
+        role: role as "OWNER" | "ADMIN" | "MEMBER" | "VIEWER",
         status: "INVITED",
       },
     });

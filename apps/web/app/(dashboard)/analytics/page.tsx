@@ -105,7 +105,7 @@ export default function AnalyticsPage() {
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
           <h3 className="text-sm font-semibold text-gray-700 mb-4">Xu hướng doanh thu</h3>
           {selectedShopId ? (
-            <RevenueTrendChart data={trend ?? []} loading={trendLoading} />
+            <RevenueTrendChart />
           ) : (
             <EmptyState message="Chọn shop để xem xu hướng doanh thu" />
           )}
@@ -114,7 +114,7 @@ export default function AnalyticsPage() {
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
           <h3 className="text-sm font-semibold text-gray-700 mb-4">ROAS theo chiến dịch</h3>
           {selectedAdAccountId ? (
-            <CampaignROASChart data={campaigns} loading={campaignsLoading} />
+            <CampaignROASChart />
           ) : (
             <EmptyState message="Kết nối tài khoản quảng cáo để xem ROAS" />
           )}
