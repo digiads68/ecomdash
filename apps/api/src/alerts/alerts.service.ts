@@ -41,7 +41,7 @@ export class AlertsService {
     return instances.map((i) => ({
       id: i.id,
       ruleId: i.ruleId,
-      ruleName: i.rule.name,
+      ruleName: i.rule?.name ?? "",
       shopId: i.shopId,
       state: i.state as "FIRING" | "RESOLVED",
       metadata: i.metadata as Record<string, unknown>,

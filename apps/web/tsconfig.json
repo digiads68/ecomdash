@@ -16,7 +16,8 @@
     "paths": {
       "@/*": ["./*"],
       "@ecomdash/shared": ["../../packages/shared/src/index.ts"],
-      "@ecomdash/database": ["../../packages/database/src/index.ts"]
+      "@ecomdash/database": ["../../packages/database/src/index.ts"],
+      "@prisma/client": ["../../packages/database/node_modules/@prisma/client/.prisma/client/default.d.ts"]
     }
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],

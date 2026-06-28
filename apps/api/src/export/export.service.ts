@@ -35,7 +35,11 @@ export class ExportService {
     shopId: string | undefined,
     res: Response
   ) {
-    const shopFilter = shopId ? `AND shop_id = '${shopId}'` : "";
+    // Validate shopId ownership before querying
+    if (shopId) {
+      await prisma.shop.findFirstOrThrow({ where: { id: shopId, organizationId: orgId } });
+    }
+    const shopFilter = shopId ? `AND shop_id = {shopId:String}` : "";
     const rows = await this.clickhouse.query<{
       date: string;
       gmv: number;
@@ -49,9 +53,11 @@ export class ExportService {
        WHERE tenant_id = {orgId:String}
          ${shopFilter}
          AND timestamp BETWEEN {from:String} AND {to:String}
+         AND dimensions['product_id'] = ''
        GROUP BY date
-       ORDER BY date ASC`,
-      { orgId, from, to }
+       ORDER BY date ASC
+       FORMAT JSONEachRow`,
+      { orgId, from, to, ...(shopId ? { shopId } : {}) }
     );
 
     const headers = ["Ngày", "Doanh thu (VND)", "Số đơn hàng"];
@@ -68,9 +74,10 @@ export class ExportService {
     adAccountId: string | undefined,
     res: Response
   ) {
-    const accountFilter = adAccountId
-      ? `AND dimensions['ad_account_id'] = '${adAccountId}'`
-      : "";
+    // Filter by campaign_id dimension (seed data uses campaign_id, not ad_account_id)
+    const campaignFilter = adAccountId
+      ? `AND notEmpty(dimensions['campaign_id'])`
+      : `AND notEmpty(dimensions['campaign_id'])`;
 
     const rows = await this.clickhouse.query<{
       campaign_id: string;
@@ -89,10 +96,11 @@ export class ExportService {
          sumIf(value, metric_name = 'gmv') AS gmv
        FROM ecomdash.metrics_local
        WHERE tenant_id = {orgId:String}
-         ${accountFilter}
+         ${campaignFilter}
          AND timestamp BETWEEN {from:String} AND {to:String}
        GROUP BY campaign_id
-       ORDER BY spend DESC`,
+       ORDER BY spend DESC
+       FORMAT JSONEachRow`,
       { orgId, from, to }
     );
 

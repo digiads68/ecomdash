@@ -1,6 +1,9 @@
-import { Controller, Get, Query, UseGuards } from "@nestjs/common";
+import { Controller, Get, Query, UseGuards, BadRequestException } from "@nestjs/common";
 import { ClerkGuard } from "../auth/clerk.guard";
 import { ProductsService } from "./products.service";
+
+const VALID_SORT = ["revenue", "orders", "roas"] as const;
+type SortBy = typeof VALID_SORT[number];
 
 @Controller("products")
 @UseGuards(ClerkGuard)
@@ -14,6 +17,13 @@ export class ProductsController {
     @Query("to") to: string,
     @Query("sortBy") sortBy?: string,
   ) {
-    return this.productsService.getAnalytics(shopId, from, to, sortBy);
+    if (!shopId) throw new BadRequestException("shopId is required");
+    if (!from || !to) throw new BadRequestException("from and to are required");
+    const f = new Date(from);
+    const t = new Date(to);
+    if (isNaN(f.getTime()) || isNaN(t.getTime())) throw new BadRequestException("Invalid date format");
+    if (f > t) throw new BadRequestException("from must be before to");
+    const sort: SortBy = VALID_SORT.includes(sortBy as SortBy) ? (sortBy as SortBy) : "revenue";
+    return this.productsService.getAnalytics(shopId, from, to, sort);
   }
 }

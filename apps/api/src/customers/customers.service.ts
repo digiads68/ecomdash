@@ -26,7 +26,7 @@ export class CustomersService {
     );
 
     const totalBuyers = rows.length;
-    const returningBuyers = rows.filter((r) => Number(r.order_count) > 1).length;
+    const returningBuyers = rows.filter((r) => (Number(r.order_count) || 0) > 1).length;
     const newBuyers = totalBuyers - returningBuyers;
 
     return {

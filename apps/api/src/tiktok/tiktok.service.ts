@@ -64,7 +64,7 @@ export class TiktokService {
     });
     const limits: Record<string, number> = { STARTER: 1, PRO: 5, ENTERPRISE: Infinity };
     const limit = limits[org?.plan ?? "STARTER"] ?? 1;
-    if ((org?._count.shops ?? 0) >= limit) {
+    if ((org?._count?.shops ?? 0) >= limit) {
       throw new BadRequestException(
         `Gói ${org?.plan} chỉ hỗ trợ tối đa ${limit} shop. Nâng cấp để thêm shop.`
       );

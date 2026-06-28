@@ -37,18 +37,21 @@ export class MetricsService {
 
   private async fetchPeriodMetrics(orgId: string, shopId: string, from: Date, to: Date) {
     const rows = await this.ch.query<{ metric_name: string; value_sum: number }>(
-      `SELECT metric_name, sum(value_sum) AS value_sum
-       FROM ecomdash.metrics_daily_mv
+      `SELECT metric_name, sum(value) AS value_sum
+       FROM ecomdash.metrics_local
        WHERE tenant_id = {orgId:String}
          AND shop_id = {shopId:String}
-         AND date >= toDate({from:String})
-         AND date <= toDate({to:String})
-       GROUP BY metric_name`,
+         AND timestamp >= {from:String}
+         AND timestamp < {to:String}
+         AND metric_name IN ('gmv', 'order_count', 'ad_spend')
+         AND dimensions['product_id'] = ''
+       GROUP BY metric_name
+       FORMAT JSONEachRow`,
       {
         orgId,
         shopId,
-        from: from.toISOString().split("T")[0],
-        to: to.toISOString().split("T")[0],
+        from: from.toISOString(),
+        to: to.toISOString(),
       }
     );
 
@@ -82,8 +85,10 @@ export class MetricsService {
          AND timestamp >= {from:String}
          AND timestamp < {to:String}
          AND metric_name IN ('gmv', 'order_count')
+         AND dimensions['product_id'] = ''
        GROUP BY date
-       ORDER BY date ASC`,
+       ORDER BY date ASC
+       FORMAT JSONEachRow`,
       {
         orgId,
         shopId,
@@ -142,16 +147,18 @@ export class MetricsService {
          dimensions['product_id'] AS product_id,
          sumIf(value, metric_name = 'gmv') AS revenue,
          sumIf(value, metric_name = 'order_count') AS orders,
-         sumIf(value, metric_name = 'ad_spend') AS ad_spend
+         0 AS ad_spend
        FROM ecomdash.metrics_local
        WHERE tenant_id = {orgId:String}
          AND shop_id = {shopId:String}
          AND timestamp >= {from:String}
          AND timestamp < {to:String}
          AND notEmpty(dimensions['product_id'])
+         AND metric_name IN ('gmv', 'order_count')
        GROUP BY product_id
        ORDER BY revenue DESC
-       LIMIT {limit:UInt32}`,
+       LIMIT {limit:UInt32}
+       FORMAT JSONEachRow`,
       { orgId, shopId, from: from.toISOString(), to: to.toISOString(), limit }
     );
 

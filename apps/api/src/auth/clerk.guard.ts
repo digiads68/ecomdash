@@ -45,7 +45,9 @@ export class ClerkGuard implements CanActivate {
       request.user = payload;
       request.userId = payload.sub;
       // Clerk puts org_id in token claims under `org_id`
-      request.orgId = payload.org_id || payload["org_id"];
+      const orgId = payload.org_id || payload["org_id"];
+      if (!orgId) throw new UnauthorizedException("Token missing org_id — select an organization");
+      request.orgId = orgId;
     } catch {
       throw new UnauthorizedException("Invalid or expired token");
     }
