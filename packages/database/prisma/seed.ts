@@ -73,6 +73,18 @@ async function main() {
     },
   });
 
+  // Create default ShopConfig for profit calculator
+  await prisma.shopConfig.upsert({
+    where: { shopId: shop.id },
+    update: {},
+    create: {
+      shopId: shop.id,
+      cogsPercent: 40,
+      shippingPercent: 5,
+      platformFeePercent: 2,
+    },
+  });
+
   // Create demo products
   const productNames = [
     "Kem Dưỡng Da SPF 50+",

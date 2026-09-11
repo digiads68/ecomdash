@@ -1,4 +1,4 @@
-import { Controller, Get, Query, UseGuards } from "@nestjs/common";
+import { Controller, Get, Query, UseGuards, BadRequestException } from "@nestjs/common";
 import { ClerkGuard } from "../auth/clerk.guard";
 import { CustomersService } from "./customers.service";
 
@@ -13,6 +13,8 @@ export class CustomersController {
     @Query("from") from: string,
     @Query("to") to: string,
   ) {
+    if (!shopId) throw new BadRequestException("shopId is required");
+    if (!from || !to) throw new BadRequestException("from and to are required");
     return this.customersService.getSummary(shopId, from, to);
   }
 
@@ -23,6 +25,9 @@ export class CustomersController {
     @Query("to") to: string,
     @Query("limit") limit?: string,
   ) {
-    return this.customersService.getTopBuyers(shopId, from, to, limit ? parseInt(limit) : 20);
+    if (!shopId) throw new BadRequestException("shopId is required");
+    if (!from || !to) throw new BadRequestException("from and to are required");
+    const parsedLimit = Math.min(Math.max(1, parseInt(limit ?? "20") || 20), 100);
+    return this.customersService.getTopBuyers(shopId, from, to, parsedLimit);
   }
 }

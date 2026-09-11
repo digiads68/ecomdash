@@ -1,9 +1,10 @@
-import { Injectable, OnModuleInit } from "@nestjs/common";
+import { Injectable, OnModuleInit, InternalServerErrorException, Logger } from "@nestjs/common";
 import axios, { AxiosInstance } from "axios";
 
 @Injectable()
 export class ClickHouseService implements OnModuleInit {
   private client: AxiosInstance;
+  private readonly logger = new Logger(ClickHouseService.name);
 
   onModuleInit() {
     this.client = axios.create({
@@ -20,30 +21,42 @@ export class ClickHouseService implements OnModuleInit {
     // Replace named params {paramName: Type} with values
     let resolvedSql = sql;
     for (const [key, value] of Object.entries(params)) {
-      resolvedSql = resolvedSql.replace(
-        new RegExp(`\\{${key}:[^}]+\\}`, "g"),
-        typeof value === "string" ? `'${value.replace(/'/g, "\\'")}'` : String(value)
-      );
+      const escaped =
+        typeof value === "string"
+          ? `'${value.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}'`
+          : String(value);
+      resolvedSql = resolvedSql.replace(new RegExp(`\\{${key}:[^}]+\\}`, "g"), escaped);
     }
 
-    const response = await this.client.post("/", resolvedSql, {
-      params: { ...this.client.defaults.params, output_format_json_quote_64bit_integers: 0 },
-      headers: { "Content-Type": "text/plain" },
-      responseType: "text",
-    });
+    try {
+      const response = await this.client.post("/", resolvedSql, {
+        params: { ...this.client.defaults.params, output_format_json_quote_64bit_integers: 0 },
+        headers: { "Content-Type": "text/plain" },
+        responseType: "text",
+      });
 
-    if (!response.data || response.data.trim() === "") return [];
+      if (!response.data || (response.data as string).trim() === "") return [];
 
-    // JSONEachRow format
-    const lines = (response.data as string).trim().split("\n").filter(Boolean);
-    return lines.map((line) => JSON.parse(line)) as T[];
+      const lines = (response.data as string).trim().split("\n").filter(Boolean);
+      return lines.map((line) => JSON.parse(line)) as T[];
+    } catch (err: any) {
+      const detail = err.response?.data ?? err.message;
+      this.logger.error(`ClickHouse query failed: ${String(detail).slice(0, 300)}`);
+      throw new InternalServerErrorException("ClickHouse query failed");
+    }
   }
 
   async insert(table: string, rows: Record<string, any>[]): Promise<void> {
     if (rows.length === 0) return;
     const jsonLines = rows.map((r) => JSON.stringify(r)).join("\n");
-    await this.client.post(`/?query=INSERT+INTO+${table}+FORMAT+JSONEachRow`, jsonLines, {
-      headers: { "Content-Type": "text/plain" },
-    });
+    try {
+      await this.client.post(`/?query=INSERT+INTO+${table}+FORMAT+JSONEachRow`, jsonLines, {
+        headers: { "Content-Type": "text/plain" },
+      });
+    } catch (err: any) {
+      const detail = err.response?.data ?? err.message;
+      this.logger.error(`ClickHouse insert failed: ${String(detail).slice(0, 300)}`);
+      throw new InternalServerErrorException("ClickHouse insert failed");
+    }
   }
 }

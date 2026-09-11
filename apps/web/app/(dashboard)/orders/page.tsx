@@ -2,15 +2,10 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { Package, CheckCircle2, Clock, XCircle, RotateCcw } from "lucide-react";
-import { useShopStore } from "@/lib/stores/shop-store";
+import { useShopStore, getDateRangeValues } from "@/lib/stores/shop-store";
 import { useApiClient } from "@/lib/api-client";
 import { MetricCard } from "@/components/metrics/MetricCard";
 import { OrderStatusChart } from "@/components/charts/OrderStatusChart";
-
-function useDateRange() {
-  const { getDateRangeValues } = useShopStore();
-  return getDateRangeValues();
-}
 
 interface OrderSummary {
   total: number;
@@ -23,15 +18,18 @@ interface OrderSummary {
 }
 
 export default function OrdersPage() {
-  const { selectedShopId } = useShopStore();
+  const { selectedShopId, dateRange } = useShopStore();
+  const { from, to } = getDateRangeValues(dateRange);
   const fetchWithAuth = useApiClient();
-  const { from, to } = useDateRange();
+
+  const fromStr = from.toISOString();
+  const toStr = to.toISOString();
 
   const { data: summary, isLoading: summaryLoading } = useQuery({
-    queryKey: ["orders-summary", selectedShopId, from, to],
+    queryKey: ["orders-summary", selectedShopId, dateRange],
     queryFn: () =>
       fetchWithAuth<OrderSummary>(
-        `/orders/summary?shopId=${selectedShopId}&from=${from}&to=${to}`
+        `/orders/summary?shopId=${selectedShopId}&from=${fromStr}&to=${toStr}`
       ),
     enabled: !!selectedShopId,
     staleTime: 60_000,
@@ -39,10 +37,10 @@ export default function OrdersPage() {
   });
 
   const { data: trend, isLoading: trendLoading } = useQuery({
-    queryKey: ["orders-trend", selectedShopId, from, to],
+    queryKey: ["orders-trend", selectedShopId, dateRange],
     queryFn: () =>
       fetchWithAuth<{ data: { date: string; delivered: number; processing: number; cancelled: number; returned: number }[] }>(
-        `/orders/trend?shopId=${selectedShopId}&from=${from}&to=${to}`
+        `/orders/trend?shopId=${selectedShopId}&from=${fromStr}&to=${toStr}`
       ),
     enabled: !!selectedShopId,
     staleTime: 60_000,

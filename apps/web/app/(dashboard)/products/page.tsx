@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Package2 } from "lucide-react";
-import { useShopStore } from "@/lib/stores/shop-store";
+import { useShopStore, getDateRangeValues } from "@/lib/stores/shop-store";
 import { useApiClient } from "@/lib/api-client";
 import { ProductAnalyticsTable, type ProductRow } from "@/components/tables/ProductAnalyticsTable";
 
@@ -19,17 +19,17 @@ const FILTER_LABELS: Record<HealthFilter, string> = {
 };
 
 export default function ProductsPage() {
-  const { selectedShopId, getDateRangeValues } = useShopStore();
-  const { from, to } = getDateRangeValues();
+  const { selectedShopId, dateRange } = useShopStore();
+  const { from, to } = getDateRangeValues(dateRange);
   const fetchWithAuth = useApiClient();
   const [sortBy, setSortBy] = useState<SortKey>("gmv");
   const [healthFilter, setHealthFilter] = useState<HealthFilter>("all");
 
   const { data, isLoading } = useQuery({
-    queryKey: ["products-analytics", selectedShopId, from, to, sortBy],
+    queryKey: ["products-analytics", selectedShopId, dateRange, sortBy],
     queryFn: () =>
       fetchWithAuth<{ products: ProductRow[] }>(
-        `/products/analytics?shopId=${selectedShopId}&from=${from}&to=${to}&sortBy=${sortBy}`
+        `/products/analytics?shopId=${selectedShopId}&from=${from.toISOString()}&to=${to.toISOString()}&sortBy=${sortBy}`
       ),
     enabled: !!selectedShopId,
     staleTime: 60_000,

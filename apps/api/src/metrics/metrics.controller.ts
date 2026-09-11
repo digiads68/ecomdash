@@ -1,6 +1,7 @@
-import { Controller, Get, Query, Req } from "@nestjs/common";
+import { Controller, Get, Query, Req, UseGuards } from "@nestjs/common";
 import { ClickHouseService } from "./clickhouse.service";
 import { MetricsService } from "./metrics.service";
+import { ClerkGuard } from "../auth/clerk.guard";
 
 function parseDate(val: string | undefined, fallback: Date): Date {
   if (!val) return fallback;
@@ -9,6 +10,7 @@ function parseDate(val: string | undefined, fallback: Date): Date {
 }
 
 @Controller("metrics")
+@UseGuards(ClerkGuard)
 export class MetricsController {
   constructor(
     private readonly metricsService: MetricsService,

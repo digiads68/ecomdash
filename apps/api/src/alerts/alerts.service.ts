@@ -17,8 +17,8 @@ export class AlertsService {
         organizationId: orgId,
         shopId: dto.shopId,
         name: dto.name,
-        conditions: { conditions: dto.conditions, logic: dto.logic },
-        actions: { actions: dto.actions },
+        conditions: { conditions: dto.conditions, logic: dto.logic } as any,
+        actions: { actions: dto.actions } as any,
         isActive: dto.isActive ?? true,
       },
     });
@@ -41,7 +41,7 @@ export class AlertsService {
     return instances.map((i) => ({
       id: i.id,
       ruleId: i.ruleId,
-      ruleName: i.rule.name,
+      ruleName: i.rule?.name ?? "",
       shopId: i.shopId,
       state: i.state as "FIRING" | "RESOLVED",
       metadata: i.metadata as Record<string, unknown>,

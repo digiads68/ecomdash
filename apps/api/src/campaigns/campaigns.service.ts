@@ -37,7 +37,8 @@ export class CampaignsService {
        GROUP BY campaign_id
        HAVING spend > 0
        ORDER BY spend DESC
-       LIMIT 20`,
+       LIMIT 20
+       FORMAT JSONEachRow`,
       {
         orgId,
         from: from.toISOString(),

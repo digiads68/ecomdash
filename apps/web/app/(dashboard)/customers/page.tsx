@@ -2,7 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { Users, UserPlus, Repeat2 } from "lucide-react";
-import { useShopStore } from "@/lib/stores/shop-store";
+import { useShopStore, getDateRangeValues } from "@/lib/stores/shop-store";
 import { useApiClient } from "@/lib/api-client";
 import { MetricCard } from "@/components/metrics/MetricCard";
 import { CustomerSegmentChart } from "@/components/charts/CustomerSegmentChart";
@@ -23,15 +23,18 @@ interface TopBuyer {
 }
 
 export default function CustomersPage() {
-  const { selectedShopId, getDateRangeValues } = useShopStore();
-  const { from, to } = getDateRangeValues();
+  const { selectedShopId, dateRange } = useShopStore();
+  const { from, to } = getDateRangeValues(dateRange);
   const fetchWithAuth = useApiClient();
 
+  const fromStr = from.toISOString();
+  const toStr = to.toISOString();
+
   const { data: summary, isLoading: summaryLoading } = useQuery({
-    queryKey: ["customers-summary", selectedShopId, from, to],
+    queryKey: ["customers-summary", selectedShopId, dateRange],
     queryFn: () =>
       fetchWithAuth<CustomerSummary>(
-        `/customers/summary?shopId=${selectedShopId}&from=${from}&to=${to}`
+        `/customers/summary?shopId=${selectedShopId}&from=${fromStr}&to=${toStr}`
       ),
     enabled: !!selectedShopId,
     staleTime: 60_000,
@@ -39,10 +42,10 @@ export default function CustomersPage() {
   });
 
   const { data: topData, isLoading: topLoading } = useQuery({
-    queryKey: ["customers-top", selectedShopId, from, to],
+    queryKey: ["customers-top", selectedShopId, dateRange],
     queryFn: () =>
       fetchWithAuth<{ customers: TopBuyer[] }>(
-        `/customers/top?shopId=${selectedShopId}&from=${from}&to=${to}&limit=20`
+        `/customers/top?shopId=${selectedShopId}&from=${fromStr}&to=${toStr}&limit=20`
       ),
     enabled: !!selectedShopId,
     staleTime: 60_000,
@@ -98,7 +101,7 @@ export default function CustomersPage() {
 
         {/* Top buyers table */}
         <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6">
-          <h2 className="text-base font-semibold text-gray-800 mb-4">Top khách hàng</h2>
+          <h2 className="text-base font-semibold text-gray-800 mb-2">Top khách hàng</h2>
           <p className="text-xs text-gray-400 mb-4 flex items-center gap-1.5">
             <span className="inline-block w-2 h-2 rounded-full bg-green-400" />
             ID ẩn danh — không lưu thông tin cá nhân

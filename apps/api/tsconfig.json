@@ -1,7 +1,7 @@
 {
   "compilerOptions": {
     "module": "commonjs",
-    "declaration": true,
+    "declaration": false,
     "removeComments": true,
     "emitDecoratorMetadata": true,
     "experimentalDecorators": true,
@@ -19,7 +19,8 @@
     "noFallthroughCasesInSwitch": false,
     "paths": {
       "@ecomdash/database": ["../../packages/database/src/index.ts"],
-      "@ecomdash/shared": ["../../packages/shared/src/index.ts"]
+      "@ecomdash/shared": ["../../packages/shared/src/index.ts"],
+      "@prisma/client": ["../../packages/database/node_modules/@prisma/client/.prisma/client/default.d.ts"]
     }
   }
 }

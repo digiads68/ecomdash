@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Calculator, Save } from "lucide-react";
-import { useShopStore } from "@/lib/stores/shop-store";
+import { useShopStore, getDateRangeValues } from "@/lib/stores/shop-store";
 import { useApiClient } from "@/lib/api-client";
 import { formatVNDCompact } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -35,15 +35,17 @@ function PctInput({ label, value, onChange }: { label: string; value: number; on
 }
 
 export function ProfitCalculator() {
-  const { selectedShopId, getDateRangeValues } = useShopStore();
-  const { from, to } = getDateRangeValues();
+  const { selectedShopId, dateRange } = useShopStore();
+  const { from, to } = getDateRangeValues(dateRange);
   const fetchWithAuth = useApiClient();
   const queryClient = useQueryClient();
 
   const { data: overview } = useQuery({
-    queryKey: ["overview", selectedShopId, from, to],
+    queryKey: ["overview", selectedShopId, dateRange],
     queryFn: () =>
-      fetchWithAuth<{ revenue: number; adSpend: number }>(`/metrics/overview?shopId=${selectedShopId}&from=${from}&to=${to}`),
+      fetchWithAuth<{ revenue: number; adSpend: number }>(
+        `/metrics/overview?shopId=${selectedShopId}&from=${from.toISOString()}&to=${to.toISOString()}`
+      ),
     enabled: !!selectedShopId,
     staleTime: 60_000,
   });

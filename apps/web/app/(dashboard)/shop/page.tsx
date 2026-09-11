@@ -17,6 +17,7 @@ interface ShopSummary {
   avgOrderValue: number;
   avgOrderValueChange: number;
   returnRate: number;
+  returnRateChange?: number;
 }
 
 interface DailyOrders {
