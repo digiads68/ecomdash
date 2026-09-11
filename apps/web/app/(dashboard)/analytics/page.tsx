@@ -163,7 +163,7 @@ function CampaignList({
           <div key={c.campaignId ?? i} className="flex items-center justify-between">
             <div className="min-w-0 flex-1">
               <p className="text-sm font-medium text-gray-800 truncate">
-                {c.campaignName || `Campaign ${c.campaignId}`}
+                {c.name || `Campaign ${c.campaignId}`}
               </p>
               <p className="text-xs text-gray-400">Chi phí: {formatVNDCompact(c.spend)}</p>
             </div>

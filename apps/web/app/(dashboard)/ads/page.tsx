@@ -12,7 +12,7 @@ import { cn } from "@/lib/utils";
 
 interface Campaign {
   campaignId: string;
-  campaignName: string;
+  name: string;
   spend: number;
   impressions: number;
   clicks: number;
@@ -198,7 +198,7 @@ export default function AdsPage() {
                     className="hover:bg-gray-50 transition-colors"
                   >
                     <td className="px-6 py-4 text-sm font-medium text-gray-900 max-w-xs truncate">
-                      {campaign.campaignName}
+                      {campaign.name}
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-700 text-right tabular-nums">
                       {formatVND(campaign.spend)}

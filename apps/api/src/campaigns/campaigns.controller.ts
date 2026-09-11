@@ -1,4 +1,5 @@
-import { Controller, Get, Query, Req } from "@nestjs/common";
+import { Controller, Get, Query, Req, UseGuards } from "@nestjs/common";
+import { ClerkGuard } from "../auth/clerk.guard";
 import { CampaignsService } from "./campaigns.service";
 
 function parseDate(val: string | undefined, fallback: Date): Date {
@@ -8,6 +9,7 @@ function parseDate(val: string | undefined, fallback: Date): Date {
 }
 
 @Controller("campaigns")
+@UseGuards(ClerkGuard)
 export class CampaignsController {
   constructor(private readonly campaignsService: CampaignsService) {}
 

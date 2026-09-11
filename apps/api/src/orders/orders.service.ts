@@ -5,17 +5,18 @@ import { ClickHouseService } from "../metrics/clickhouse.service";
 export class OrdersService {
   constructor(private readonly ch: ClickHouseService) {}
 
-  async getSummary(shopId: string, from: string, to: string) {
+  async getSummary(orgId: string, shopId: string, from: string, to: string) {
     const rows = await this.ch.query<{ metric_name: string; total: number }>(
       `SELECT metric_name, sum(value) AS total
-       FROM metrics_local
-       WHERE shop_id = {shopId:String}
+       FROM ecomdash.metrics_local
+       WHERE tenant_id = {orgId:String}
+         AND shop_id = {shopId:String}
          AND metric_name IN ('order_count','order_delivered','order_processing','order_cancelled','order_returned')
          AND timestamp >= {from:String}
          AND timestamp < {to:String}
        GROUP BY metric_name
        FORMAT JSONEachRow`,
-      { shopId, from, to }
+      { orgId, shopId, from, to }
     );
 
     const map: Record<string, number> = {};
@@ -38,18 +39,19 @@ export class OrdersService {
     };
   }
 
-  async getTrend(shopId: string, from: string, to: string) {
+  async getTrend(orgId: string, shopId: string, from: string, to: string) {
     const rows = await this.ch.query<{ date: string; metric_name: string; total: number }>(
       `SELECT toDate(timestamp) AS date, metric_name, sum(value) AS total
-       FROM metrics_local
-       WHERE shop_id = {shopId:String}
+       FROM ecomdash.metrics_local
+       WHERE tenant_id = {orgId:String}
+         AND shop_id = {shopId:String}
          AND metric_name IN ('order_delivered','order_processing','order_cancelled','order_returned')
          AND timestamp >= {from:String}
          AND timestamp < {to:String}
        GROUP BY date, metric_name
        ORDER BY date ASC
        FORMAT JSONEachRow`,
-      { shopId, from, to }
+      { orgId, shopId, from, to }
     );
 
     // Pivot by date

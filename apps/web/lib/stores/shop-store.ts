@@ -35,8 +35,11 @@ export function getDateRangeValues(preset: DateRangePreset): { from: Date; to: D
   const to = now;
 
   switch (preset) {
-    case "today":
-      return { from: new Date(now.setHours(0, 0, 0, 0)), to };
+    case "today": {
+      const startOfDay = new Date(now);
+      startOfDay.setHours(0, 0, 0, 0);
+      return { from: startOfDay, to };
+    }
     case "yesterday": {
       const d = new Date();
       d.setDate(d.getDate() - 1);

@@ -1,4 +1,4 @@
-import { Controller, Get, Query, UseGuards, BadRequestException } from "@nestjs/common";
+import { Controller, Get, Query, Req, UseGuards, BadRequestException } from "@nestjs/common";
 import { ClerkGuard } from "../auth/clerk.guard";
 import { OrdersService } from "./orders.service";
 
@@ -17,23 +17,25 @@ export class OrdersController {
 
   @Get("summary")
   summary(
+    @Req() req: any,
     @Query("shopId") shopId: string,
     @Query("from") from: string,
     @Query("to") to: string,
   ) {
     if (!shopId) throw new BadRequestException("shopId is required");
     const { from: f, to: t } = validateDateRange(from, to);
-    return this.ordersService.getSummary(shopId, f, t);
+    return this.ordersService.getSummary(req.orgId, shopId, f, t);
   }
 
   @Get("trend")
   trend(
+    @Req() req: any,
     @Query("shopId") shopId: string,
     @Query("from") from: string,
     @Query("to") to: string,
   ) {
     if (!shopId) throw new BadRequestException("shopId is required");
     const { from: f, to: t } = validateDateRange(from, to);
-    return this.ordersService.getTrend(shopId, f, t);
+    return this.ordersService.getTrend(req.orgId, shopId, f, t);
   }
 }

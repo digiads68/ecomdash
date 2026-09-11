@@ -25,12 +25,19 @@ async def insert_metrics(rows: list[dict]) -> None:
         resp.raise_for_status()
 
 
-async def query(sql: str) -> list[dict]:
-    """Execute a SELECT and return rows as dicts (JSONEachRow)."""
+async def query(sql: str, params: dict | None = None) -> list[dict]:
+    """Execute a SELECT and return rows as dicts (JSONEachRow).
+
+    Named params in SQL ({name:Type}) are passed as param_name=value URL query params.
+    """
+    url_params: dict = {"database": CLICKHOUSE_DB, "default_format": "JSONEachRow"}
+    if params:
+        for k, v in params.items():
+            url_params[f"param_{k}"] = str(v)
     async with httpx.AsyncClient() as client:
         resp = await client.post(
             CLICKHOUSE_HOST,
-            params={"database": CLICKHOUSE_DB, "default_format": "JSONEachRow"},
+            params=url_params,
             content=(sql + " FORMAT JSONEachRow").encode(),
             headers={"Content-Type": "text/plain"},
         )

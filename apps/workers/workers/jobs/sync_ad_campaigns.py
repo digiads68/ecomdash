@@ -7,7 +7,6 @@ import asyncpg
 from workers.crypto import decrypt_token
 
 logger = logging.getLogger(__name__)
-
 ADS_API = "https://business-api.tiktok.com/open_api/v1.3"
 
 
@@ -15,8 +14,8 @@ async def run_sync_ad_campaigns():
     conn = await asyncpg.connect(os.getenv("DATABASE_URL"))
     try:
         accounts = await conn.fetch(
-            """SELECT id, organization_id, tiktok_advertiser_id, access_token_encrypted
-               FROM ad_accounts WHERE sync_status != 'ERROR'"""
+            'SELECT id, "tiktokAdvertiserId", "accessTokenEncrypted" '
+            'FROM "AdAccount" WHERE "syncStatus" != \'ERROR\''
         )
         for account in accounts:
             try:
@@ -28,56 +27,33 @@ async def run_sync_ad_campaigns():
 
 
 async def _sync_campaigns_for_account(conn, account):
-    token = decrypt_token(account["access_token_encrypted"])
-    advertiser_id = account["tiktok_advertiser_id"]
-    org_id = account["organization_id"]
-
-    page = 1
-    total_synced = 0
-
+    token = decrypt_token(account["accessTokenEncrypted"])
+    page, total = 1, 0
     async with httpx.AsyncClient(timeout=30) as client:
         while True:
-            resp = await client.get(
-                f"{ADS_API}/campaign/get/",
+            resp = await client.get(f"{ADS_API}/campaign/get/",
                 headers={"Access-Token": token},
-                params={
-                    "advertiser_id": advertiser_id,
-                    "fields": json.dumps(["campaign_id", "campaign_name", "status", "budget"]),
-                    "page": page,
-                    "page_size": 100,
-                },
-            )
+                params={"advertiser_id": account["tiktokAdvertiserId"],
+                        "fields": json.dumps(["campaign_id","campaign_name","status","objective_type"]),
+                        "page": page, "page_size": 100})
             resp.raise_for_status()
             data = resp.json()
-
             if data.get("code") != 0:
-                logger.error(f"TikTok campaigns API error: {data.get('message')}")
-                break
-
-            campaigns = data.get("data", {}).get("list", [])
-            for c in campaigns:
+                logger.error(f"TikTok campaigns API error: {data.get('message')}"); break
+            for c in data.get("data", {}).get("list", []):
+                # Campaign schema: id, adAccountId, tiktokCampaignId, name, status, objective, createdAt, updatedAt
                 await conn.execute(
-                    """INSERT INTO campaigns
-                         (id, organization_id, ad_account_id, tiktok_campaign_id,
-                          name, status, budget, created_at, updated_at)
-                       VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, NOW(), NOW())
-                       ON CONFLICT (tiktok_campaign_id)
-                       DO UPDATE SET name = EXCLUDED.name,
-                                     status = EXCLUDED.status,
-                                     budget = EXCLUDED.budget,
-                                     updated_at = NOW()""",
-                    org_id,
-                    account["id"],
-                    str(c["campaign_id"]),
-                    c.get("campaign_name", ""),
-                    c.get("status", "ENABLE"),
-                    c.get("budget", 0),
+                    """INSERT INTO "Campaign"
+                         (id, "adAccountId", "tiktokCampaignId", name, status, objective, "createdAt", "updatedAt")
+                       VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, NOW(), NOW())
+                       ON CONFLICT ("tiktokCampaignId")
+                       DO UPDATE SET name=EXCLUDED.name, status=EXCLUDED.status,
+                                     objective=EXCLUDED.objective, "updatedAt"=NOW()""",
+                    account["id"], str(c["campaign_id"]), c.get("campaign_name",""),
+                    c.get("status","ENABLE"), c.get("objective_type"),
                 )
-                total_synced += 1
-
-            total_pages = data.get("data", {}).get("page_info", {}).get("total_page", 1)
-            if page >= total_pages:
-                break
+                total += 1
+            total_pages = data.get("data",{}).get("page_info",{}).get("total_page",1)
+            if page >= total_pages: break
             page += 1
-
-    logger.info(f"Synced {total_synced} campaigns for account {account['id']}")
+    logger.info(f"Synced {total} campaigns for account {account['id']}")

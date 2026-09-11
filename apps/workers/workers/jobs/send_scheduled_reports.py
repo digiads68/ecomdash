@@ -66,21 +66,36 @@ def _format_vnd(value: float) -> str:
 
 async def _query_clickhouse(shop_id: str, tenant_id: str, from_dt: datetime, to_dt: datetime) -> dict:
     """Fetch aggregated metrics from ClickHouse for the period."""
-    sql = f"""
+    import json
+    sql = """
     SELECT metric_name, sum(value) AS total
-    FROM {CLICKHOUSE_DB}.metrics_local
-    WHERE shop_id = '{shop_id}'
+    FROM ecomdash.metrics_local
+    WHERE tenant_id = {tenantId:String}
+      AND shop_id = {shopId:String}
       AND metric_name IN ('gmv','order_count','ad_spend')
-      AND timestamp >= '{from_dt.strftime("%Y-%m-%d %H:%M:%S")}'
-      AND timestamp < '{to_dt.strftime("%Y-%m-%d %H:%M:%S")}'
+      AND timestamp >= {fromTs:String}
+      AND timestamp < {toTs:String}
     GROUP BY metric_name
-    FORMAT JSONEachRow
     """
+    params = {
+        "tenantId": tenant_id,
+        "shopId": shop_id,
+        "fromTs": from_dt.strftime("%Y-%m-%d %H:%M:%S"),
+        "toTs": to_dt.strftime("%Y-%m-%d %H:%M:%S"),
+    }
+    url_params = {"database": CLICKHOUSE_DB, "default_format": "JSONEachRow"}
+    for k, v in params.items():
+        url_params[f"param_{k}"] = v
     async with httpx.AsyncClient() as client:
-        resp = await client.post(CLICKHOUSE_HOST, content=sql, timeout=30)
+        resp = await client.post(
+            CLICKHOUSE_HOST,
+            params=url_params,
+            content=(sql + " FORMAT JSONEachRow").encode(),
+            headers={"Content-Type": "text/plain"},
+            timeout=30,
+        )
         resp.raise_for_status()
         lines = resp.text.strip().split("\n")
-        import json
         result = {}
         for line in lines:
             if line:
@@ -91,7 +106,7 @@ async def _query_clickhouse(shop_id: str, tenant_id: str, from_dt: datetime, to_
 
 def _is_due(config: dict, now: datetime) -> bool:
     """Check if the report is due to be sent."""
-    last_sent = config["last_sent_at"]
+    last_sent = config["lastSentAt"]
     freq = config["frequency"]
 
     if freq == "daily":
@@ -100,7 +115,7 @@ def _is_due(config: dict, now: datetime) -> bool:
         return (now.date() - last_sent.date()).days >= 1
 
     if freq == "weekly":
-        day_of_week = config.get("day_of_week", 1)  # default Monday
+        day_of_week = config.get("dayOfWeek", 1)  # default Monday
         if now.weekday() != day_of_week:
             return False
         if last_sent is None:
@@ -108,7 +123,7 @@ def _is_due(config: dict, now: datetime) -> bool:
         return (now.date() - last_sent.date()).days >= 7
 
     if freq == "monthly":
-        day_of_month = config.get("day_of_month", 1)
+        day_of_month = config.get("dayOfMonth", 1)
         if now.day != day_of_month:
             return False
         if last_sent is None:
@@ -140,12 +155,12 @@ async def run_send_scheduled_reports():
     conn = await asyncpg.connect(os.getenv("DATABASE_URL"))
     try:
         configs = await conn.fetch(
-            """SELECT rc.id, rc.shop_id, rc.frequency, rc.day_of_week, rc.day_of_month,
-                      rc.recipient_email, rc.last_sent_at, s.name AS shop_name,
-                      s.organization_id AS tenant_id
+            """SELECT rc.id, rc."shopId", rc.frequency, rc."dayOfWeek", rc."dayOfMonth",
+                      rc."recipientEmail", rc."lastSentAt", s.name AS shop_name,
+                      s."organizationId" AS tenant_id
                FROM "ReportConfig" rc
-               JOIN "Shop" s ON s.id = rc.shop_id
-               WHERE rc.is_active = true"""
+               JOIN "Shop" s ON s.id = rc."shopId"
+               WHERE rc."isActive" = true"""
         )
 
         now = datetime.now(timezone.utc)
@@ -175,7 +190,7 @@ async def run_send_scheduled_reports():
                 freq_label = "Tháng"
 
             try:
-                metrics = await _query_clickhouse(config["shop_id"], config["tenant_id"], from_dt, to_dt)
+                metrics = await _query_clickhouse(config["shopId"], config["tenant_id"], from_dt, to_dt)
                 gmv = metrics.get("gmv", 0)
                 ad_spend = metrics.get("ad_spend", 0)
                 order_count = int(metrics.get("order_count", 0))
@@ -195,10 +210,10 @@ async def run_send_scheduled_reports():
                 )
 
                 subject = f"[EcomDash] Báo cáo {freq_label} — {config['shop_name']} · {period}"
-                await _send_email(config["recipient_email"], subject, html)
+                await _send_email(config["recipientEmail"], subject, html)
 
                 await conn.execute(
-                    'UPDATE "ReportConfig" SET last_sent_at=$1 WHERE id=$2',
+                    'UPDATE "ReportConfig" SET "lastSentAt"=$1 WHERE id=$2',
                     now, config["id"],
                 )
                 sent_count += 1
