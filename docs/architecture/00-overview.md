@@ -5,7 +5,7 @@
 
 ## 1. Sản phẩm làm gì
 
-SaaS cho seller TikTok Shop tại Việt Nam: gom dữ liệu **TikTok Shop** (đơn hàng, sản phẩm, đối soát, hoàn/huỷ) và **TikTok Ads** (chiến dịch Shop Ads thủ công + GMV Max) vào một dashboard, tính ra lợi nhuận thực và hiệu quả quảng cáo, gửi cảnh báo và báo cáo định kỳ.
+SaaS **điều hành bán hàng theo lãi lỗ** cho seller TikTok Shop tại Việt Nam. Trang chủ trả lời: trong kỳ này shop bán được bao nhiêu đơn thật (sau huỷ/hoàn), quảng cáo tốn bao nhiêu cho số đơn đó, ROAS thực so với ROAS TikTok báo, và sau giá vốn, phí sàn, chi phí tự nhập thì lãi hay lỗ (`11-profit-and-loss.md`). Hệ thống gom dữ liệu **TikTok Shop** (đơn hàng, sản phẩm, đối soát, hoàn/huỷ) và **TikTok Ads** (chiến dịch Shop Ads thủ công + GMV Max) vào một dashboard, tính ra lợi nhuận thực và hiệu quả quảng cáo, gửi cảnh báo và báo cáo định kỳ.
 
 ## 2. Vì sao phải làm lại
 
@@ -89,8 +89,12 @@ Bị xoá: `apps/workers/`, `infra/docker/clickhouse/`, `apps/api/src/metrics/cl
 | Advertiser | Tài khoản quảng cáo TikTok Ads (`advertiser_id`) |
 | Store link | Quan hệ advertiser ↔ shop (từ `/gmv_max/store/list/`), nhiều–nhiều |
 | GMV | Tổng `payment.total_amount` của đơn hợp lệ (không tính UNPAID, CANCELLED) |
-| ROAS tổng | GMV shop ÷ tổng chi quảng cáo của mọi advertiser gắn với shop |
-| ROI GMV Max | `gross_revenue ÷ cost` do TikTok báo cho chiến dịch GMV Max — **gồm cả organic**, không cộng/trộn với ROAS |
+| ROAS TikTok | Doanh thu TikTok quy cho quảng cáo ÷ chi QC — tính cả đơn huỷ/hoàn (GMV Max còn gồm organic) |
+| ROAS thực | ROAS TikTok × tỉ lệ thành doanh thu (sau huỷ/hoàn) của shop |
+| ROAS thực nhận | ROAS thực × (thực nhận ÷ doanh thu thực) |
+| ROAS hoà vốn | Doanh thu thực ÷ lãi gộp trước quảng cáo |
+| Kết cục đơn | SUCCESS · PARTIAL_RETURN · RETURNED · CANCELLED · PENDING (`11` §4) |
+| Gom kỳ | Theo ngày đặt đơn (cohort) |
 | Thực nhận (settlement) | Số tiền TikTok thanh toán cho seller sau phí, từ API finance |
 | Ngày kinh doanh | Ngày theo múi giờ shop (`Asia/Ho_Chi_Minh`), dùng cho mọi bảng tổng hợp |
 
@@ -118,3 +122,4 @@ Bị xoá: `apps/workers/`, `infra/docker/clickhouse/`, `apps/api/src/metrics/cl
 | `08-local-dev.md` | Chạy local: không Docker và có Docker |
 | `09-go-live-checklist.md` | Đăng ký app, scope, mục cần xác minh |
 | `10-work-packages.md` | Gói việc cho agent, phụ thuộc, tiêu chí hoàn thành |
+| `11-profit-and-loss.md` | **Điều hành lãi lỗ**: kết cục đơn, thác lãi lỗ, ROAS TikTok vs thực, giá vốn SKU, chi phí tự nhập — nguồn chuẩn cho mọi con số tiền |

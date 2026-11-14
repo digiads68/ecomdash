@@ -42,6 +42,7 @@ Một queue `sync` (concurrency 4) + queue `notify` (concurrency 2). JobId cố 
 | `ads.entities` | `{advertiserId}` | 60' | advertiser info, campaign/get, gmv_max/store/list → link khớp shop |
 | `ads.reports` | `{advertiserId}` | 30' | §5 |
 | `rollup.shop` | `{shopId, dates: string[]}` | theo sự kiện | §6 |
+| `pnl.recompute` | `{shopId, fromDate, toDate?}` | sau mỗi rollup/sync QC/sửa chi phí + mỗi 30' cho 45 ngày gần nhất | `11-profit-and-loss.md` §10 |
 | `alerts.evaluate` | — | 5' | §7 |
 | `reports.send` | — | mỗi ngày 08:00 Asia/Ho_Chi_Minh | §8 |
 
@@ -144,7 +145,7 @@ Rule JSON (giữ dạng v1, đổi danh sách metric):
   "actions": [{ "type": "email", "to": "owner@shop.vn" }, { "type": "telegram", "chatId": "-100123" }]
 }
 ```
-- metric: `gmv`, `orders`, `ad_spend`, `roas`, `cancel_rate`, `return_rate`, `aov`.
+- metric: `gmv`, `orders`, `ad_spend`, `roas_tiktok`, `real_roas`, `real_roas_below_breakeven`, `net_profit`, `net_margin`, `cancel_rate`, `return_rate`, `aov` (lãi lỗ đọc `ShopDailyPnl`).
 - operator: `lt`, `lte`, `gt`, `gte`. window: `today`, `24h`, `7d`.
 - `today`/`7d` đọc từ bảng ngày; `24h` đọc thẳng `Order`/`AdDailyStat` (ad chỉ có độ phân giải ngày → `24h` của ad_spend = hôm nay + hôm qua × tỉ lệ giờ; ghi chú trong UI).
 - Rule đang FIRING và điều kiện còn đúng → không tạo instance mới; hết đúng → RESOLVED.

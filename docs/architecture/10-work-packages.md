@@ -110,6 +110,13 @@ Làm theo thứ tự ưu tiên: Tổng quan → Đơn hàng (+ chi tiết) → Q
 `scripts/demo.sh`, `scripts/demo-connect.ts`, `scripts/demo-reset.sh`, `scripts/db-apply.sh`, Dockerfile cho `api`, `web`, `mock-tiktok`, `docker-compose.yml` profile `demo`.
 **Xong khi:** từ máy sạch (chỉ có Postgres + Redis), `pnpm install && cp .env.example .env && pnpm demo` cho dashboard có số liệu trong ≤ 3 phút.
 
+## WP11 — Lãi lỗ (P&L)
+Đọc: 11 toàn bộ. Phụ thuộc WP3, WP5; web phần trong WP8.
+- `packages/shared/src/pnl/*` hàm thuần + unit test: phân loại kết cục (mọi nhánh §4), `computeOrderEconomics` (đã/chưa đối soát, restock), giá vốn theo ngày hiệu lực, 3 kiểu CostItem, ước tính PENDING, phân bổ QC nhiều shop, bất biến thác §7.
+- Job `pnl.recompute` + kích hoạt §10; module `pnl`, `costs` (gồm nhập/xuất Excel bằng `exceljs`).
+- Seed demo: giá vốn cho ~80% SKU, CostItem mẫu (Đóng gói 3.500₫/đơn SHIPPED, Quà tặng 6.000₫/đơn SUCCESS, Lương CSKH 12tr/tháng).
+**Xong khi:** sửa giá vốn một SKU qua API → `/pnl/summary` đổi đúng phần giá vốn tương ứng; thác khớp bất biến trên dữ liệu demo.
+
 ## WP10 — Kiểm chứng E2E
 Playwright (Chromium có sẵn tại `/opt/pw-browsers`): mở từng trang, chờ dữ liệu, kiểm không có lỗi console, chụp ảnh `docs/screenshots/*.png`; đối chiếu số GMV 30 ngày trên Tổng quan với `/__mock/state`.
 **Xong khi:** mọi trang có ảnh chụp có số liệu; `pnpm test` và `pnpm typecheck` sạch.

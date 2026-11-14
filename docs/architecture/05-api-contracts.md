@@ -47,6 +47,8 @@ interface ConnectionsDto {
 
 `GET /shops` → `{ id, name, code, region, currency, timezone }[]` (shop đang active của tổ chức — dùng cho shop switcher).
 
+Trang chủ dùng `GET /pnl/summary` + `GET /pnl/daily` (`11-profit-and-loss.md` §11). `/overview` dưới đây chỉ còn cho khối vận hành (phễu trạng thái, top sản phẩm).
+
 `GET /overview?shopId&from&to`
 ```ts
 interface OverviewDto {
@@ -87,6 +89,8 @@ interface ProductRowDto { id; tiktokProductId; title; thumbnailUrl; status; skuC
 
 ## 6. Tài chính
 
+> Lợi nhuận ở trang Tài chính lấy từ `/pnl/summary` (cùng nguồn với trang chủ). `/finance/*` chỉ còn đối soát/kỳ thanh toán.
+
 `GET /finance/summary?shopId&from&to`
 ```ts
 interface FinanceSummaryDto {
@@ -114,7 +118,7 @@ interface AdsOverviewDto {
   allocation: 'DIRECT' | 'PROPORTIONAL';   // PROPORTIONAL khi advertiser chạy cho nhiều shop
 }
 ```
-`GET /ads/campaigns?shopId&from&to&kind?=MANUAL|GMV_MAX`
+`GET /ads/campaigns?shopId&from&to&kind?=MANUAL|GMV_MAX` — mỗi dòng có thêm `roasTiktok`, `realRoasEstimated`, `vsBreakEven: 'PROFIT'|'NEAR_BREAKEVEN'|'LOSS'`
 ```ts
 interface CampaignRowDto { id; tiktokCampaignId; name; kind; advertiserName; operationStatus; budget: number|null;
   budgetMode: string|null; roasBid: number|null; spend; impressions; clicks; ctr: number|null; cpc: number|null;

@@ -215,13 +215,44 @@ tr.link { cursor: pointer; }
   .kpi .value { font-size: 18px; }
 }
 @media (prefers-reduced-motion: reduce) { .side { transition: none; } }
+.stack { display: flex; height: 14px; border-radius: 99px; overflow: hidden; gap: 2px; margin-bottom: 14px; }
+.stack i { display: block; min-width: 3px; }
+.outcomes { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; }
+.outcomes > div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.outcomes > div:first-child { border-right: 1px solid var(--line); padding-right: 12px; }
+.outcomes .k { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+.outcomes b { font-size: 18px; }
+.outcomes b small { font-size: 12px; color: var(--muted); font-weight: 500; }
+.outcomes span.num { color: var(--muted); font-size: 13px; }
+.sw { display: inline-block; width: 9px; height: 9px; border-radius: 2px; }
+.roas-row { display: grid; grid-template-columns: minmax(0, 1fr) 20px minmax(0, 1fr) 20px minmax(0, 1fr) minmax(0, 1fr); gap: 10px; align-items: stretch; }
+.roas { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.roas .k { font-size: 12px; color: var(--muted); }
+.roas b { font-size: 26px; letter-spacing: -0.01em; }
+.roas.hi { border-color: var(--accent); background: var(--accent-soft); }
+.roas.hi b { color: var(--accent-fg); }
+.roas.be { border-style: dashed; margin-left: 8px; }
+.roas.be .badge { align-self: flex-start; }
+.roas-row .arrow { display: grid; place-items: center; color: var(--faint); font-size: 18px; }
+tr.grp td { background: var(--surface-2); font-weight: 600; font-size: 12px; color: var(--muted); }
+tr.loss td { background: var(--bad-soft); }
+a.attn-item { color: inherit; text-decoration: none; }
+a.attn-item:hover { filter: brightness(0.97); }
+.cell { border: 1px solid var(--line); background: var(--surface); border-radius: 6px; padding: 4px 8px; width: 120px; text-align: right; }
+.cell[type="date"] { text-align: left; width: 140px; }
+.cell::placeholder { color: var(--warn); }
+.tablink { padding: 9px 12px; color: var(--muted); font-weight: 500; border-bottom: 2px solid transparent; text-decoration: none; white-space: nowrap; }
+.tablink.on { color: var(--accent-fg); border-color: var(--accent); }
+.toast { background: var(--good-soft); color: var(--good); border-radius: 8px; padding: 9px 12px; font-weight: 500; }
+@media (max-width: 1180px) { .roas-row { grid-template-columns: repeat(2, minmax(0, 1fr)); } .roas-row .arrow { display: none; } .roas.be { margin-left: 0; } }
+@media (max-width: 640px) { .outcomes { grid-template-columns: repeat(2, minmax(0, 1fr)); } .outcomes > div:first-child { grid-column: 1 / -1; border-right: 0; padding-right: 0; } .roas b { font-size: 21px; } }
 </style>
 
 <div class="shell">
   <aside class="side" id="side" aria-label="Điều hướng">
     <div class="brand">Ecom<b>Dash</b></div>
     <nav class="nav" id="nav"></nav>
-    <div class="side-foot">Mockup v2 · dữ liệu mẫu<br>Shop: Hoa Sen Cosmetics</div>
+    <div class="side-foot">Mockup v2.1 · dữ liệu mẫu<br>Lãi lỗ theo docs/architecture/11</div>
   </aside>
   <div class="drawer-shade" id="shade"></div>
   <div class="main">
@@ -369,48 +400,122 @@ const settle = G * 0.8008, settleP = Gp * 0.7975;
 const profit = settle - G * 0.45 - O * 4500 - S, profitP = settleP - Gp * 0.45 - Op * 4500 - Sp;
 const last14 = k => cur.slice(-14).map(x => x[k]);
 
+/* ───────── lãi lỗ mẫu (cùng công thức docs/architecture/11) ───────── */
+const FIXED_MONTHLY = [["Lương CSKH", 12e6], ["Thuê kho", 6e6]];
+const PACK = 3500, GIFT = 6000, FEE_R = 0.135, OTHER_R = 0.025, COGS_R = 0.42;
+function pnlOf(list, offset) {
+  const t = { paid: 0, cancelled: 0, returned: 0, partial: 0, success: 0, pending: 0, gross: 0, cancelAmt: 0, refundAmt: 0, pendingAmt: 0, pendingExp: 0,
+    realized: 0, fees: 0, other: 0, settle: 0, cogs: 0, pack: 0, gift: 0, fixed: 0, ad: 0, adManual: 0, adGmv: 0, ttRev: 0, estRev: 0, days: [] };
+  list.forEach((x, i) => {
+    const age = list.length - 1 - i + offset;
+    const pf = age < 1 ? 0.9 : age < 3 ? 0.62 : age < 6 ? 0.3 : age < 10 ? 0.08 : 0;
+    const canR = 0.068 + (x.d.getDate() % 4) * 0.004;
+    const gross = x.gmv, can = gross * canR, nonCan = gross - can, pend = nonCan * pf, dec = nonCan - pend, ref = dec * 0.048, pExp = pend * 0.95;
+    const real = dec - ref + pExp;
+    const oc = Math.round(x.orders * canR), op = Math.round((x.orders - oc) * pf), oret = Math.round((x.orders - oc - op) * 0.036), opart = Math.round((x.orders - oc - op) * 0.012);
+    const os = x.orders - oc - op - oret - opart;
+    const fees = real * FEE_R, other = real * OTHER_R, settle = real - fees - other, cogs = real * COGS_R;
+    const pack = (x.orders - oc) * PACK, gift = (os + opart + op * 0.95) * GIFT, fixed = FIXED_MONTHLY.reduce((s, f) => s + f[1], 0) / 30;
+    const contrib = settle - cogs - pack - gift - fixed, ttRev = x.manual * 3.2 + x.gmvMax * 4.6;
+    Object.entries({ paid: x.orders, cancelled: oc, returned: oret, partial: opart, success: os, pending: op, gross, cancelAmt: can, refundAmt: ref, pendingAmt: pend, pendingExp: pExp,
+      realized: real, fees, other, settle, cogs, pack, gift, fixed, ad: x.spend, adManual: x.manual, adGmv: x.gmvMax, ttRev, estRev: pExp }).forEach(([k, v]) => t[k] += v);
+    t.days.push({ label: x.label, real, net: contrib - x.spend, roasReal: ttRev / x.spend * (real / gross), be: real / contrib });
+  });
+  t.custom = t.pack + t.gift + t.fixed;
+  t.contrib = t.settle - t.cogs - t.custom; t.net = t.contrib - t.ad;
+  t.successEq = t.success + t.partial + t.pending * 0.95;
+  t.realization = t.realized / t.gross;
+  t.roasTT = t.ttRev / t.ad; t.roasReal = t.roasTT * t.realization; t.roasSettle = t.roasReal * t.settle / t.realized;
+  t.breakEven = t.realized / t.contrib; t.shopWide = t.realized / t.ad;
+  t.settledShare = 1 - t.pendingAmt / t.gross;
+  return t;
+}
+const P = pnlOf(cur, 0), PP = pnlOf(prev, 30);
+const adStatus = (real, be) => real >= be * 1.2 ? ["Có lãi", "b-green"] : real >= be ? ["Sát hoà vốn", "b-amber"] : ["Đang lỗ", "b-red"];
+const x2 = v => v == null || !isFinite(v) ? "—" : v.toFixed(2).replace(".", ",") + "×";
+
+
 /* ───────── màn hình ───────── */
 const screens = {};
 
-screens.overview = () => `
-  ${head("Tổng quan", "Hoa Sen Beauty Official · 16/10 – 14/11/2026 · so với 30 ngày trước")}
+screens.overview = () => {
+  const st = adStatus(P.roasReal, P.breakEven);
+  const seg = [["Thành công", P.success, P.gross - P.cancelAmt - P.refundAmt - P.pendingAmt, "--good"], ["Hoàn", P.returned + P.partial, P.refundAmt, "--amber"],
+    ["Huỷ", P.cancelled, P.cancelAmt, "--bad"], ["Đang chờ", P.pending, P.pendingAmt, "--faint"]];
+  const per = v => vnd(v / P.successEq);
+  const rows = [
+    ["Giá vốn hàng bán", P.cogs, "COGS", "9 SKU dùng % mặc định"], ["Hoa hồng sàn", P.fees * 0.46, "PLATFORM"], ["Phí giao dịch", P.fees * 0.3, "PLATFORM"], ["Hoa hồng affiliate", P.fees * 0.19, "PLATFORM"], ["Phí hạ tầng", P.fees * 0.05, "PLATFORM"],
+    ["Phí vận chuyển người bán chịu", P.other * 0.62, "PLATFORM_OTHER"], ["Phí ship hoàn hàng", P.other * 0.28, "PLATFORM_OTHER"], ["Điều chỉnh, thuế khấu trừ", P.other * 0.1, "PLATFORM_OTHER"],
+    ["Đóng gói (3.500₫ / đơn đã gửi)", P.pack, "CUSTOM"], ["Quà tặng kèm (6.000₫ / đơn thành công)", P.gift, "CUSTOM"], ...FIXED_MONTHLY.map(f => [f[0] + " (" + vndC(f[1]) + " / tháng)", P.fixed * f[1] / 18e6, "CUSTOM"]),
+    ["Quảng cáo thủ công", P.adManual, "ADS"], ["Quảng cáo GMV Max", P.adGmv, "ADS"]];
+  const grp = { COGS: "Giá vốn", PLATFORM: "Phí sàn", PLATFORM_OTHER: "Phí khác trên sàn", CUSTOM: "Chi phí tự nhập", ADS: "Quảng cáo" };
+  let lastG = "";
+  return `${head("Điều hành lãi lỗ", `Hoa Sen Beauty Official · đơn đặt 16/10 – 14/11/2026 · đã chốt ${pct(P.settledShare, 0)} giá trị đơn, phần còn lại là ước tính`)}
+  <section class="panel"><h2>Kết cục ${n(P.paid)} đơn đặt trong kỳ <small>gom theo ngày đặt đơn</small></h2>
+    <div class="stack">${seg.map(s => `<i style="flex:${s[2]};background:var(${s[3]})" title="${s[0]}"></i>`).join("")}</div>
+    <div class="outcomes">
+      <div><span class="k">Đơn đặt</span><b class="num">${n(P.paid)}</b><span class="num">${vndC(P.gross)}</span></div>
+      ${seg.map(s => `<div><span class="k"><i class="sw" style="background:var(${s[3]})"></i>${s[0]}</span><b class="num">${n(s[1])} <small>${pct(s[1] / P.paid)}</small></b><span class="num">${vndC(s[2])}</span></div>`).join("")}
+    </div></section>
+  <div class="roas-row">
+    <div class="roas"><span class="k">ROAS TikTok báo</span><b class="num">${x2(P.roasTT)}</b><span class="note">Tính cả đơn huỷ và hoàn</span></div>
+    <div class="arrow" aria-hidden="true">→</div>
+    <div class="roas hi"><span class="k">ROAS thực</span><b class="num">${x2(P.roasReal)}</b><span class="note">Sau huỷ/hoàn: giữ lại ${pct(P.realization, 0)} doanh thu</span></div>
+    <div class="arrow" aria-hidden="true">→</div>
+    <div class="roas"><span class="k">ROAS thực nhận</span><b class="num">${x2(P.roasSettle)}</b><span class="note">Sau phí sàn</span></div>
+    <div class="roas be"><span class="k">ROAS hoà vốn</span><b class="num">${x2(P.breakEven)}</b><span class="badge ${st[1]}">Quảng cáo: ${st[0]}</span></div>
+  </div>
+  <p class="note" style="margin:-6px 0 0">ROAS toàn shop (doanh thu thực ÷ chi QC, gồm cả đơn tự nhiên): ${x2(P.shopWide)} · Chi QC / đơn thành công: ${vnd(P.ad / P.successEq)} · Chi QC / đơn đặt: ${vnd(P.ad / P.paid)}</p>
   <div class="grid kpis">
-    ${kpi("GMV", vndC(G), chg(G, Gp), { spark: last14("gmv") })}
-    ${kpi("Đơn hàng", n(O), chg(O, Op), { spark: last14("orders") })}
-    ${kpi("Giá trị đơn TB", vndC(G / O), chg(G / O, Gp / Op))}
-    ${kpi("Chi quảng cáo", vndC(S), chg(S, Sp), { inverse: true, spark: last14("spend") })}
-    ${kpi("ROAS tổng", (G / S).toFixed(2).replace(".", ",") + "×", chg(G / S, Gp / Sp))}
-    ${kpi("Thực nhận", vndC(settle), chg(settle, settleP), { tag: "đối soát" })}
-    ${kpi("Lợi nhuận ước tính", vndC(profit), chg(profit, profitP))}
-    ${kpi("Tỉ lệ huỷ", pct(C / O), chg(C / O, Cp / Op), { inverse: true })}
+    ${kpi("Doanh thu thực", vndC(P.realized), chg(P.realized, PP.realized), { spark: P.days.slice(-14).map(d => d.real) })}
+    ${kpi("Lãi ròng", vndC(P.net), chg(P.net, PP.net), { spark: P.days.slice(-14).map(d => d.net) })}
+    ${kpi("Biên lãi ròng", pct(P.net / P.realized), chg(P.net / P.realized, PP.net / PP.realized))}
+    ${kpi("Lãi ròng / đơn thành công", vnd(P.net / P.successEq), chg(P.net / P.successEq, PP.net / PP.successEq))}
   </div>
   <div class="grid cols-2">
-    <section class="panel"><h2>GMV và chi quảng cáo theo ngày <small>GMV tính từ đơn hợp lệ, không gồm đơn huỷ/chưa thanh toán</small></h2><div class="chart" id="c-ov"></div></section>
-    <section class="panel"><h2>Cần chú ý</h2>
-      <div class="attn">
-        <div class="attn-item"><div><b>ROAS chiến dịch "Son Velvet – Product Shopping" = 1,56×</b><span>Dưới ngưỡng 2,0× của quy tắc "ROAS thấp" · 24 giờ qua</span></div></div>
-        <div class="attn-item warn"><div><b>Toner Hoa Cúc còn 6 sản phẩm trong kho</b><span>Bán trung bình 31 cái/ngày — hết hàng trong hôm nay</span></div></div>
-        <div class="attn-item warn"><div><b>Uỷ quyền TikTok Shop hết hạn sau 24 ngày</b><span>Seller "Mỹ Phẩm Hoa Sen" · cần uỷ quyền lại trước 08/12</span></div></div>
-      </div>
-    </section>
+    <section class="panel"><h2>Từ GMV đặt hàng tới lãi ròng <small>cột sọc = phần ước tính</small></h2><div class="chart" id="c-wf"></div></section>
+    <section class="panel"><h2>Một đơn thành công</h2><div class="kv">
+      <span class="k">Doanh thu thực</span><span class="v">${per(P.realized)}</span>
+      <span class="k">Phí sàn</span><span class="v neg">−${per(P.fees)}</span>
+      <span class="k">Phí khác trên sàn</span><span class="v neg">−${per(P.other)}</span>
+      <span class="k">Giá vốn</span><span class="v neg">−${per(P.cogs)}</span>
+      <span class="k">Chi phí tự nhập</span><span class="v neg">−${per(P.custom)}</span>
+      <span class="k sum">Lãi trước quảng cáo</span><span class="v sum">${per(P.contrib)}</span>
+      <span class="k">Quảng cáo</span><span class="v neg">−${per(P.ad)}</span>
+      <span class="k sum">Lãi ròng</span><span class="v sum" style="color:var(--good)">${per(P.net)}</span></div>
+      <div class="attn" style="margin-top:14px">
+        <a class="attn-item warn" href="#costs"><div><b>9 SKU chưa nhập giá vốn</b><span>Chiếm 7,8% doanh thu · đang dùng mặc định 40% giá bán → Nhập giá vốn</span></div></a>
+        <div class="attn-item warn"><div><b>1.204 đơn chưa đối soát</b><span>Phí sàn của các đơn này đang ước tính theo tỉ lệ 30 ngày</span></div></div>
+      </div></section>
   </div>
-  <div class="grid cols-eq">
-    <section class="panel"><h2>Trạng thái đơn hàng <small>30 ngày</small></h2>
-      <div class="bars">${[["Chờ thanh toán", 37, "--faint"], ["Chờ xử lý", 512, "--amber"], ["Đang giao", 1386, "--accent"], ["Đã giao", 9311, "--good"], ["Đã huỷ", 596, "--bad"]]
-        .map(([l, v, c]) => `<div class="bar-row"><span>${l}</span><div class="track"><div class="fill" style="width:${v / 9311 * 100}%;background:var(${c})"></div></div><span class="v">${n(v)}</span></div>`).join("")}</div>
-    </section>
-    <section class="panel"><h2>Sản phẩm bán chạy</h2>
-      <div class="bars">${products.slice(0, 5).map(p => `<div class="prod" style="justify-content:space-between;min-width:0"><div class="prod" style="min-width:0">${thumb(p)}<div style="min-width:0"><div class="t">${p.title}</div><div class="s">${n(p.units)} đã bán</div></div></div><b class="num">${vndC(p.gmv)}</b></div>`).join("")}</div>
-    </section>
-  </div>`;
-screens.overview.after = () => chart("c-ov", {
-  legend, xAxis: axisX(cur.map(x => x.label)),
-  yAxis: [axisY(v => vndC(v)), axisY(v => vndC(v), { splitLine: { show: false } })],
-  series: [
-    { name: "GMV", type: "bar", data: cur.map(x => Math.round(x.gmv)), itemStyle: { color: css("--accent"), borderRadius: [3, 3, 0, 0] }, barMaxWidth: 16 },
-    { name: "Chi quảng cáo", type: "line", yAxisIndex: 1, data: cur.map(x => Math.round(x.spend)), smooth: true, symbol: "none", lineStyle: { width: 2, color: css("--amber") }, itemStyle: { color: css("--amber") } }
-  ], tooltip: { trigger: "axis", valueFormatter: v => vnd(v), backgroundColor: css("--surface"), borderColor: css("--line"), textStyle: { color: css("--fg") } }
-});
+  <section class="panel"><h2>Bóc tách chi phí <small>% trên doanh thu thực · trên mỗi đơn thành công</small></h2>
+    <div class="table-wrap"><table><thead><tr><th>Khoản chi phí</th><th class="r">Số tiền</th><th class="r">% doanh thu thực</th><th class="r">/ đơn thành công</th><th></th></tr></thead><tbody>
+    ${rows.map(([l, v, g, est]) => { const h = g !== lastG ? `<tr class="grp"><td colspan="5">${grp[g]}</td></tr>` : ""; lastG = g;
+      return h + `<tr><td style="padding-left:24px">${l}</td><td class="r">${vnd(v)}</td><td class="r">${pct(v / P.realized)}</td><td class="r">${per(v)}</td><td>${est ? `<span class="tag">≈ ${est}</span>` : g === "PLATFORM" ? `<span class="tag">≈ một phần ước tính</span>` : ""}</td></tr>`; }).join("")}
+    <tr class="grp"><td>Tổng chi phí</td><td class="r">${vnd(P.cogs + P.fees + P.other + P.custom + P.ad)}</td><td class="r">${pct((P.cogs + P.fees + P.other + P.custom + P.ad) / P.realized)}</td><td class="r">${per(P.cogs + P.fees + P.other + P.custom + P.ad)}</td><td></td></tr>
+    </tbody></table></div></section>
+  <section class="panel"><h2>Theo ngày đặt đơn <small>ROAS thực so với ROAS hoà vốn</small></h2><div class="chart" id="c-daily"></div></section>`;
+};
+screens.overview.after = () => {
+  const steps = [["GMV đặt hàng", P.gross, "t"], ["Huỷ", -P.cancelAmt], ["Hoàn", -P.refundAmt], ["Dự kiến huỷ/hoàn", -(P.pendingAmt - P.pendingExp)], ["Doanh thu thực", P.realized, "t"],
+    ["Phí sàn", -P.fees], ["Phí khác", -P.other], ["Thực nhận", P.settle, "t"], ["Giá vốn", -P.cogs], ["Chi phí tự nhập", -P.custom], ["Lãi trước QC", P.contrib, "t"], ["Quảng cáo", -P.ad], ["Lãi ròng", P.net, "t"]];
+  let run = 0; const base = [], val = [];
+  steps.forEach(([, v, t], i) => { const est = i === 3; const c = t ? (i === steps.length - 1 ? css("--good") : css("--accent")) : css("--bad");
+    const style = est ? { color: { type: "pattern", image: stripe(css("--bad")), repeat: "repeat" }, borderRadius: 3 } : { color: c, borderRadius: 3 };
+    if (t) { base.push(0); val.push({ value: v, itemStyle: style }); run = v; } else { run += v; base.push(run); val.push({ value: -v, itemStyle: style }); } });
+  chart("c-wf", { grid: { left: 8, right: 8, top: 24, bottom: 6, containLabel: true }, xAxis: Object.assign(axisX(steps.map(s => s[0])), { axisLabel: { color: css("--faint"), fontSize: 10, interval: 0, rotate: 30 } }), yAxis: axisY(v => vndC(v)),
+    tooltip: { trigger: "axis", formatter: p => steps[p[0].dataIndex][0] + ": " + vnd(steps[p[0].dataIndex][1]), backgroundColor: css("--surface"), borderColor: css("--line"), textStyle: { color: css("--fg") } },
+    series: [{ type: "bar", stack: "w", data: base, itemStyle: { color: "transparent" }, silent: true },
+      { type: "bar", stack: "w", data: val, barMaxWidth: 34, label: { show: true, position: "top", color: css("--muted"), fontSize: 10, formatter: p => vndC(steps[p.dataIndex][1]) } }] });
+  chart("c-daily", { legend, xAxis: axisX(P.days.map(d => d.label)), yAxis: [axisY(v => vndC(v)), axisY(v => v + "×", { splitLine: { show: false } })],
+    tooltip: { trigger: "axis", backgroundColor: css("--surface"), borderColor: css("--line"), textStyle: { color: css("--fg") } },
+    series: [{ name: "Doanh thu thực", type: "bar", data: P.days.map(d => Math.round(d.real)), itemStyle: { color: css("--accent"), borderRadius: [3, 3, 0, 0] }, barMaxWidth: 14 },
+      { name: "Lãi ròng", type: "bar", data: P.days.map(d => Math.round(d.net)), itemStyle: { color: css("--good"), borderRadius: [3, 3, 0, 0] }, barMaxWidth: 14 },
+      { name: "ROAS thực", type: "line", yAxisIndex: 1, data: P.days.map(d => +d.roasReal.toFixed(2)), smooth: true, symbol: "none", lineStyle: { color: css("--violet"), width: 2 }, itemStyle: { color: css("--violet") } },
+      { name: "ROAS hoà vốn", type: "line", yAxisIndex: 1, data: P.days.map(d => +d.be.toFixed(2)), symbol: "none", lineStyle: { color: css("--bad"), width: 1.5, type: "dashed" }, itemStyle: { color: css("--bad") } }] });
+};
+function stripe(color) { const c = document.createElement("canvas"); c.width = c.height = 8; const g = c.getContext("2d"); g.fillStyle = color; g.globalAlpha = 0.25; g.fillRect(0, 0, 8, 8); g.globalAlpha = 1; g.strokeStyle = color; g.lineWidth = 2; g.beginPath(); g.moveTo(0, 8); g.lineTo(8, 0); g.stroke(); return c; }
+
 
 let orderTab = "all";
 screens.orders = () => {
@@ -484,36 +589,27 @@ screens.products = () => {
 screens.products.after = () => document.querySelectorAll("[data-s]").forEach(b => b.onclick = () => { prodSort = b.dataset.s; render(); });
 
 screens.finance = () => {
-  const disc = G * 0.062, comm = G * 0.048, trx = G * 0.038, aff = G * 0.031, infra = O * 3000, shipc = G * 0.012;
-  const st = G - disc - comm - trx - aff - infra - shipc, cogs = G * 0.45, pack = O * 4500, pr = st - cogs - pack - S;
-  const fees = [["Hoa hồng sàn", comm], ["Phí giao dịch", trx], ["Hoa hồng affiliate", aff], ["Phí hạ tầng", infra], ["Phí vận chuyển người bán chịu", shipc]];
-  return `${head("Tài chính", "Từ API đối soát TikTok Shop · giá vốn và đóng gói theo Cài đặt → Chi phí", `<button class="btn">Xuất đối soát</button>`)}
-  <div class="grid kpis five">
-    ${kpi("Thực nhận", vndC(st), chg(settle, settleP))}
-    ${kpi("Tổng phí sàn", vndC(comm + trx + aff + infra + shipc), 0.231, { inverse: true })}
-    ${kpi("Chi quảng cáo", vndC(S), chg(S, Sp), { inverse: true })}
-    ${kpi("Lợi nhuận ước tính", vndC(pr), 0.188)}
-    ${kpi("Biên lợi nhuận", pct(pr / G), -0.021)}
+  const fees = [["Hoa hồng sàn", P.fees * 0.46], ["Phí giao dịch", P.fees * 0.3], ["Hoa hồng affiliate", P.fees * 0.19], ["Phí hạ tầng", P.fees * 0.05], ["Phí vận chuyển người bán chịu", P.other * 0.62], ["Phí ship hoàn hàng", P.other * 0.28], ["Điều chỉnh, thuế khấu trừ", P.other * 0.1]];
+  const settled = P.settle * 0.71;
+  return `${head("Tài chính · Đối soát", "Số tiền TikTok thực trả theo từng đơn và kỳ thanh toán · lãi lỗ xem ở trang Điều hành lãi lỗ", `<button class="btn">Xuất đối soát</button>`)}
+  <div class="grid kpis">
+    ${kpi("Đã đối soát", vndC(settled), 0.192, { tag: "thực nhận" })}
+    ${kpi("Chờ đối soát (ước tính)", vndC(P.settle - settled), 0.31, { tag: "≈" })}
+    ${kpi("Phí sàn + phí khác", vndC(P.fees + P.other), 0.204, { inverse: true })}
+    ${kpi("Tỉ lệ phí / doanh thu thực", pct((P.fees + P.other) / P.realized), 0.012, { inverse: true })}
   </div>
-  <section class="panel"><h2>Từ GMV tới lợi nhuận <small>30 ngày · 1.204 đơn hợp lệ chưa đối soát, lợi nhuận sẽ cập nhật khi TikTok quyết toán</small></h2><div class="chart" id="c-wf"></div></section>
   <div class="grid cols-eq">
-    <section class="panel"><h2>Phí theo loại</h2><div class="table-wrap"><table><thead><tr><th>Loại phí</th><th class="r">Số tiền</th><th class="r">% GMV</th></tr></thead>
-      <tbody>${fees.map(([l, v]) => `<tr><td>${l}</td><td class="r">${vnd(v)}</td><td class="r">${pct(v / G, 2)}</td></tr>`).join("")}</tbody></table></div></section>
+    <section class="panel"><h2>Phí theo loại <small>đã đối soát + ước tính</small></h2><div class="table-wrap"><table><thead><tr><th>Loại phí</th><th class="r">Số tiền</th><th class="r">% doanh thu thực</th></tr></thead>
+      <tbody>${fees.map(([l, v]) => `<tr><td>${l}</td><td class="r">${vnd(v)}</td><td class="r">${pct(v / P.realized, 2)}</td></tr>`).join("")}</tbody></table></div></section>
     <section class="panel"><h2>Kỳ thanh toán <small>statements</small></h2><div class="table-wrap"><table><thead><tr><th>Kỳ</th><th class="r">Doanh thu</th><th class="r">Phí</th><th class="r">Thực nhận</th><th>Trạng thái</th></tr></thead>
-      <tbody>${["10/11", "03/11", "27/10", "20/10"].map((d, i) => { const rv = 1.02e9 * (1 + (i === 0 ? 0.6 : 0) - i * 0.04); return `<tr><td>${d}</td><td class="r">${vndC(rv)}</td><td class="r">${vndC(rv * 0.137)}</td><td class="r">${vndC(rv * 0.863)}</td><td>${i === 0 ? `<span class="badge b-amber">Đang xử lý</span>` : `<span class="badge b-green">Đã chuyển</span>`}</td></tr>`; }).join("")}</tbody></table></div></section>
-  </div>`;
+      <tbody>${["10/11", "03/11", "27/10", "20/10"].map((d, i) => { const rv = 0.86e9 * (1 + (i === 0 ? 0.55 : 0) - i * 0.04); return `<tr><td>${d}</td><td class="r">${vndC(rv)}</td><td class="r">${vndC(rv * 0.16)}</td><td class="r">${vndC(rv * 0.84)}</td><td>${i === 0 ? `<span class="badge b-amber">Đang xử lý</span>` : `<span class="badge b-green">Đã chuyển</span>`}</td></tr>`; }).join("")}</tbody></table></div></section>
+  </div>
+  <section class="panel"><h2>Đối soát theo đơn</h2><div class="table-wrap"><table><thead><tr><th>Mã đơn</th><th>Ngày đặt</th><th>Kết cục</th><th class="r">Doanh thu thực</th><th class="r">Phí sàn</th><th class="r">Phí khác</th><th class="r">Thực nhận</th><th>Đối soát</th></tr></thead><tbody>
+    ${orders.slice(16, 26).map((o, i) => { const ret = i === 3, rv = ret ? 0 : o.total * 0.93; const f = rv * FEE_R, ot = ret ? 23000 : rv * OTHER_R;
+      return `<tr><td class="num">${o.id}</td><td>${fmtD(o.t)}</td><td>${ret ? `<span class="badge b-amber">Hoàn</span>` : `<span class="badge b-green">Thành công</span>`}</td><td class="r">${vnd(rv)}</td><td class="r neg">−${vnd(f)}</td><td class="r neg">−${vnd(ot)}</td><td class="r">${vnd(rv - f - ot)}</td><td>${i % 3 ? `<span class="tag">Kỳ 10/11</span>` : `<span class="tag">≈ chưa đối soát</span>`}</td></tr>`; }).join("")}
+  </tbody></table></div></section>`;
 };
-screens.finance.after = () => {
-  const disc = G * 0.062, comm = G * 0.048, trx = G * 0.038, aff = G * 0.031, infra = O * 3000, shipc = G * 0.012;
-  const st = G - disc - comm - trx - aff - infra - shipc, cogs = G * 0.45, pack = O * 4500, pr = st - cogs - pack - S;
-  const steps = [["GMV", G, "t"], ["Voucher shop", -disc], ["Hoa hồng sàn", -comm], ["Phí giao dịch", -trx], ["Affiliate", -aff], ["Hạ tầng + ship", -(infra + shipc)], ["Thực nhận", st, "t"], ["Giá vốn", -cogs], ["Đóng gói", -pack], ["Quảng cáo", -S], ["Lợi nhuận", pr, "t"]];
-  let run = 0; const base = [], val = [], col = [];
-  steps.forEach(([, v, t]) => { if (t) { base.push(0); val.push(v); run = v; col.push(css("--accent")); } else { run += v; base.push(run); val.push(-v); col.push(css("--bad")); } });
-  col[col.length - 1] = css("--good");
-  chart("c-wf", { xAxis: Object.assign(axisX(steps.map(s => s[0])), { axisLabel: { color: css("--faint"), fontSize: 10, interval: 0, hideOverlap: true } }), yAxis: axisY(v => vndC(v)), tooltip: { trigger: "axis", formatter: p => { const i = p[0].dataIndex; return steps[i][0] + ": " + vnd(steps[i][1]); }, backgroundColor: css("--surface"), borderColor: css("--line"), textStyle: { color: css("--fg") } },
-    series: [{ type: "bar", stack: "w", data: base, itemStyle: { color: "transparent" }, silent: true },
-      { type: "bar", stack: "w", data: val.map((v, i) => ({ value: v, itemStyle: { color: col[i], borderRadius: 3 } })), barMaxWidth: 38, label: { show: true, position: "top", color: css("--muted"), fontSize: 11, formatter: p => vndC(steps[p.dataIndex][1]) } }] });
-};
+
 
 let adsTab = "overview";
 screens.ads = () => {
@@ -521,27 +617,30 @@ screens.ads = () => {
   const agg = l => ({ spend: l.reduce((s, c) => s + c.spend, 0), orders: l.reduce((s, c) => s + c.orders, 0), rev: l.reduce((s, c) => s + c.rev, 0), imp: l.reduce((s, c) => s + c.imp, 0), clk: l.reduce((s, c) => s + c.clk, 0) });
   const A = agg(man), B = agg(gm), T = agg(campaigns);
   const tabs = `<div class="tabs" id="atabs">${[["overview", "Tổng quan"], ["MANUAL", "Chiến dịch thủ công"], ["GMV_MAX", "GMV Max"]].map(([k, l]) => `<button data-k="${k}" class="${adsTab === k ? "on" : ""}">${l}</button>`).join("")}</div>`;
-  const table = list => `<div class="table-wrap"><table><thead><tr><th>Chiến dịch</th><th>Tài khoản QC</th><th>Bật</th><th class="r">Ngân sách</th>${list[0].kind === "GMV_MAX" ? `<th class="r">ROI mục tiêu</th>` : ""}<th class="r">Chi tiêu</th><th class="r">Hiển thị</th><th class="r">Click</th><th class="r">CTR</th><th class="r">CPC</th><th class="r">Đơn</th><th class="r">Doanh thu</th><th class="r">${list[0].kind === "GMV_MAX" ? "ROI" : "ROAS"}</th></tr></thead>
-    <tbody>${list.map(c => `<tr><td><b style="font-weight:500">${c.name}</b></td><td class="note">${c.adv}</td><td><span class="toggle ${c.on ? "" : "off"}" role="img" aria-label="${c.on ? "Đang bật" : "Đang tắt"}"></span></td>
-      <td class="r">${vnd(c.budget)}<div class="note">${c.mode}</div></td>${c.kind === "GMV_MAX" ? `<td class="r">${c.roasBid.toFixed(1).replace(".", ",")}×</td>` : ""}<td class="r">${vndC(c.spend)}</td><td class="r">${n(c.imp)}</td><td class="r">${n(c.clk)}</td>
-      <td class="r">${pct(c.clk / c.imp, 2)}</td><td class="r">${vnd(c.spend / c.clk)}</td><td class="r">${n(c.orders)}</td><td class="r">${vndC(c.rev)}</td><td class="r">${roasBadge(c.rev / c.spend)}</td></tr>`).join("")}</tbody></table></div>`;
-  if (adsTab === "MANUAL") return head("Quảng cáo", "Shop Ads thủ công · report/integrated/get") + tabs + table(man);
-  if (adsTab === "GMV_MAX") return head("Quảng cáo", "GMV Max · gmv_max/report/get") + tabs + `<p class="note" style="margin:0">Doanh thu và ROI GMV Max do TikTok tính, gồm cả đơn tự nhiên được quy cho chiến dịch. Không cộng vào ROAS thủ công.</p>` + table(gm);
+  const beNote = `<p class="note" style="margin:0">ROAS thực = ROAS TikTok × ${pct(P.realization, 0)} (tỉ lệ doanh thu giữ lại sau huỷ/hoàn của shop trong kỳ). ROAS hoà vốn của shop: <b>${x2(P.breakEven)}</b>. Đây là ước tính vì TikTok không cho biết đơn nào của chiến dịch bị huỷ/hoàn.</p>`;
+  const table = list => `<div class="table-wrap"><table><thead><tr><th>Chiến dịch</th><th>Bật</th><th class="r">Ngân sách</th>${list[0].kind === "GMV_MAX" ? `<th class="r">ROI mục tiêu</th>` : ""}<th class="r">Chi tiêu</th><th class="r">CTR</th><th class="r">CPC</th><th class="r">Đơn (TikTok)</th><th class="r">Doanh thu (TikTok)</th><th class="r">ROAS TikTok</th><th class="r">ROAS thực ≈</th><th>So với hoà vốn</th></tr></thead>
+    <tbody>${list.map(c => { const rt = c.rev / c.spend, rr = rt * P.realization, s = adStatus(rr, P.breakEven);
+      return `<tr><td><b style="font-weight:500">${c.name}</b><div class="note">${c.adv}</div></td><td><span class="toggle ${c.on ? "" : "off"}" role="img" aria-label="${c.on ? "Đang bật" : "Đang tắt"}"></span></td>
+      <td class="r">${vnd(c.budget)}<div class="note">${c.mode}</div></td>${c.kind === "GMV_MAX" ? `<td class="r">${c.roasBid.toFixed(1).replace(".", ",")}×</td>` : ""}<td class="r">${vndC(c.spend)}</td>
+      <td class="r">${pct(c.clk / c.imp, 2)}</td><td class="r">${vnd(c.spend / c.clk)}</td><td class="r">${n(c.orders)}</td><td class="r">${vndC(c.rev)}</td><td class="r">${x2(rt)}</td><td class="r"><b>${x2(rr)}</b></td><td><span class="badge ${s[1]}">${s[0]}</span></td></tr>`; }).join("")}</tbody></table></div>`;
+  if (adsTab === "MANUAL") return head("Quảng cáo", "Shop Ads thủ công · report/integrated/get") + tabs + beNote + table(man);
+  if (adsTab === "GMV_MAX") return head("Quảng cáo", "GMV Max · gmv_max/report/get") + tabs + `<p class="note" style="margin:0">Doanh thu GMV Max do TikTok tính, gồm cả đơn tự nhiên được quy cho chiến dịch.</p>` + beNote + table(gm);
+  const st = adStatus(P.roasReal, P.breakEven);
   return `${head("Quảng cáo", "2 tài khoản quảng cáo · liên kết với shop qua TikTok Business Center")}${tabs}
   <div class="grid kpis six">
-    ${kpi("Chi tiêu", vndC(T.spend), chg(S, Sp), { inverse: true })}${kpi("Hiển thị", n(T.imp), 0.162)}${kpi("Click", n(T.clk), 0.144)}
-    ${kpi("CTR", pct(T.clk / T.imp, 2), -0.015)}${kpi("CPC", vnd(T.spend / T.clk), 0.031, { inverse: true })}${kpi("ROAS tổng", (G / S).toFixed(2).replace(".", ",") + "×", chg(G / S, Gp / Sp), { tag: "GMV shop ÷ chi QC" })}
+    ${kpi("Chi tiêu", vndC(P.ad), chg(P.ad, PP.ad), { inverse: true })}${kpi("ROAS TikTok", x2(P.roasTT), chg(P.roasTT, PP.roasTT))}${kpi("ROAS thực", x2(P.roasReal), chg(P.roasReal, PP.roasReal), { tag: "sau huỷ/hoàn" })}
+    ${kpi("ROAS hoà vốn", x2(P.breakEven), chg(P.breakEven, PP.breakEven), { inverse: true })}${kpi("Chi QC / đơn thành công", vnd(P.ad / P.successEq), chg(P.ad / P.successEq, PP.ad / PP.successEq), { inverse: true })}${kpi("CTR", pct(T.clk / T.imp, 2), -0.015)}
   </div>
   <div class="split">
     <div class="src"><h3>Shop Ads thủ công <span class="tag">${man.length} chiến dịch</span></h3><div class="note">Video Shopping · LIVE Shopping · Product Shopping</div>
-      <div class="big num">${(A.rev / A.spend).toFixed(2).replace(".", ",")}× <span class="note" style="font-weight:400">ROAS</span></div>
-      <dl><div><dt>Chi tiêu</dt><dd>${vndC(A.spend)}</dd></div><div><dt>Đơn</dt><dd>${n(A.orders)}</dd></div><div><dt>Doanh thu</dt><dd>${vndC(A.rev)}</dd></div></dl></div>
-    <div class="src"><h3>GMV Max <span class="tag violet">${gm.length} chiến dịch</span></h3><div class="note">ROI do TikTok tính, gồm cả đơn tự nhiên</div>
-      <div class="big num" style="color:var(--violet)">${(B.rev / B.spend).toFixed(2).replace(".", ",")}× <span class="note" style="font-weight:400">ROI</span></div>
-      <dl><div><dt>Chi tiêu</dt><dd>${vndC(B.spend)}</dd></div><div><dt>Đơn</dt><dd>${n(B.orders)}</dd></div><div><dt>Doanh thu</dt><dd>${vndC(B.rev)}</dd></div></dl></div>
+      <div class="big num">${x2(A.rev / A.spend * P.realization)} <span class="note" style="font-weight:400">ROAS thực · TikTok báo ${x2(A.rev / A.spend)}</span></div>
+      <dl><div><dt>Chi tiêu</dt><dd>${vndC(A.spend)}</dd></div><div><dt>Đơn (TikTok)</dt><dd>${n(A.orders)}</dd></div><div><dt>Doanh thu (TikTok)</dt><dd>${vndC(A.rev)}</dd></div></dl></div>
+    <div class="src"><h3>GMV Max <span class="tag violet">${gm.length} chiến dịch</span></h3><div class="note">TikTok tính gồm cả đơn tự nhiên</div>
+      <div class="big num" style="color:var(--violet)">${x2(B.rev / B.spend * P.realization)} <span class="note" style="font-weight:400">ROAS thực · TikTok báo ${x2(B.rev / B.spend)}</span></div>
+      <dl><div><dt>Chi tiêu</dt><dd>${vndC(B.spend)}</dd></div><div><dt>Đơn (TikTok)</dt><dd>${n(B.orders)}</dd></div><div><dt>Doanh thu (TikTok)</dt><dd>${vndC(B.rev)}</dd></div></dl></div>
   </div>
   <div class="grid cols-2">
-    <section class="panel"><h2>Chi tiêu theo nguồn và ROAS tổng</h2><div class="chart" id="c-ads"></div></section>
+    <section class="panel"><h2>Chi tiêu theo nguồn và ROAS thực <small>quảng cáo đang: <span class="badge ${st[1]}">${st[0]}</span></small></h2><div class="chart" id="c-ads"></div></section>
     <section class="panel"><h2>Dự báo ngân sách tháng 11</h2>
       <div class="kv"><span class="k">Đã chi (01–14/11)</span><span class="v">${vnd(sum(days.slice(-14), "spend"))}</span>
       <span class="k">Dự kiến cả tháng</span><span class="v"><b>${vnd(sum(days.slice(-14), "spend") / 14 * 30 * 0.94)}</b></span>
@@ -555,8 +654,10 @@ screens.ads.after = () => {
   chart("c-ads", { legend, xAxis: axisX(cur.map(x => x.label)), yAxis: [axisY(v => vndC(v)), axisY(v => v + "×", { splitLine: { show: false } })],
     series: [{ name: "Thủ công", type: "bar", stack: "s", data: cur.map(x => Math.round(x.manual)), itemStyle: { color: css("--amber") }, barMaxWidth: 16 },
       { name: "GMV Max", type: "bar", stack: "s", data: cur.map(x => Math.round(x.gmvMax)), itemStyle: { color: css("--violet"), borderRadius: [3, 3, 0, 0] } },
-      { name: "ROAS tổng", type: "line", yAxisIndex: 1, data: cur.map(x => +(x.gmv / x.spend).toFixed(2)), smooth: true, symbol: "none", lineStyle: { color: css("--accent"), width: 2 }, itemStyle: { color: css("--accent") } }] });
+      { name: "ROAS thực", type: "line", yAxisIndex: 1, data: P.days.map(d => +d.roasReal.toFixed(2)), smooth: true, symbol: "none", lineStyle: { color: css("--accent"), width: 2 }, itemStyle: { color: css("--accent") } },
+      { name: "ROAS hoà vốn", type: "line", yAxisIndex: 1, data: P.days.map(d => +d.be.toFixed(2)), symbol: "none", lineStyle: { color: css("--bad"), width: 1.5, type: "dashed" }, itemStyle: { color: css("--bad") } }] });
 };
+
 
 screens.returns = () => {
   const R = sum(cur, "returns"), Rp = sum(prev, "returns");
@@ -596,20 +697,22 @@ screens.customers.after = () => chart("c-seg", { tooltip: { trigger: "item", bac
 screens.alerts = () => `${head("Cảnh báo", "Đánh giá mỗi 5 phút · gửi email và Telegram", `<button class="btn primary">Tạo quy tắc</button>`)}
   <div class="grid cols-2">
     <div class="table-wrap"><table><thead><tr><th>Quy tắc</th><th>Điều kiện</th><th>Gửi tới</th><th>Trạng thái</th><th>Bật</th></tr></thead><tbody>
-      <tr><td>ROAS thấp</td><td class="num">ROAS &lt; 2,0× trong 24 giờ</td><td>Email, Telegram</td><td><span class="badge b-red">Đang kích hoạt</span></td><td><span class="toggle"></span></td></tr>
+      <tr><td>Quảng cáo lỗ</td><td class="num">ROAS thực &lt; ROAS hoà vốn trong 7 ngày</td><td>Email, Telegram</td><td><span class="badge b-green">Bình thường</span></td><td><span class="toggle"></span></td></tr>
+      <tr><td>Chiến dịch lỗ</td><td class="num">ROAS thực chiến dịch &lt; hoà vốn trong 24 giờ</td><td>Telegram</td><td><span class="badge b-red">Đang kích hoạt</span></td><td><span class="toggle"></span></td></tr>
+      <tr><td>Biên lãi giảm</td><td class="num">Biên lãi ròng &lt; 8% trong 7 ngày</td><td>Email</td><td><span class="badge b-green">Bình thường</span></td><td><span class="toggle"></span></td></tr>
       <tr><td>Huỷ đơn tăng</td><td class="num">Tỉ lệ huỷ &gt; 8% trong 7 ngày</td><td>Email</td><td><span class="badge b-green">Bình thường</span></td><td><span class="toggle"></span></td></tr>
       <tr><td>Doanh thu hôm nay thấp</td><td class="num">GMV hôm nay &lt; 50 tr</td><td>Telegram</td><td><span class="badge b-green">Bình thường</span></td><td><span class="toggle"></span></td></tr>
       <tr><td>Chi quảng cáo vượt</td><td class="num">Chi QC hôm nay &gt; 25 tr</td><td>Email</td><td><span class="badge b-gray">Tắt</span></td><td><span class="toggle off"></span></td></tr>
     </tbody></table></div>
     <section class="panel"><h2>Tạo quy tắc</h2>
       <div class="grid" style="gap:10px">
-        <label class="select"><span class="note">Chỉ số</span><select id="a-m"><option>ROAS tổng</option><option>GMV</option><option>Số đơn</option><option>Chi quảng cáo</option><option>Tỉ lệ huỷ</option><option>Tỉ lệ hoàn</option><option>Giá trị đơn TB</option></select></label>
+        <label class="select"><span class="note">Chỉ số</span><select id="a-m"><option>ROAS thực</option><option>ROAS thực dưới hoà vốn</option><option>Lãi ròng</option><option>Biên lãi ròng</option><option>ROAS TikTok</option><option>GMV</option><option>Số đơn</option><option>Chi quảng cáo</option><option>Tỉ lệ huỷ</option><option>Tỉ lệ hoàn</option><option>Giá trị đơn TB</option></select></label>
         <div class="toolbar"><label class="select"><select id="a-o"><option>nhỏ hơn</option><option>lớn hơn</option></select></label><input class="search" id="a-t" style="width:110px" value="2,0"><label class="select"><select id="a-w"><option>24 giờ</option><option>Hôm nay</option><option>7 ngày</option></select></label></div>
         <label class="select"><span class="note">Gửi tới</span><input id="a-e" style="border:0;background:transparent;outline:none;min-width:0;flex:1" value="owner@hoasen.vn"></label>
         <button class="btn primary">Lưu quy tắc</button></div></section>
   </div>
   <section class="panel"><h2>Lịch sử</h2><div class="table-wrap"><table><thead><tr><th>Thời điểm</th><th>Nội dung</th><th>Trạng thái</th></tr></thead><tbody>
-    <tr><td>14/11 13:40</td><td>ROAS chiến dịch "Son Velvet – Product Shopping" 1,56× &lt; 2,0×</td><td><span class="badge b-red">Đang kích hoạt</span></td></tr>
+    <tr><td>14/11 13:40</td><td>Chiến dịch "Son Velvet – Product Shopping": ROAS TikTok 1,56× → ROAS thực ≈1,37× &lt; hoà vốn 2,6×</td><td><span class="badge b-red">Đang kích hoạt</span></td></tr>
     <tr><td>12/11 09:15</td><td>Tỉ lệ huỷ 7 ngày 8,6% &gt; 8%</td><td><span class="badge b-green">Đã hết</span></td></tr>
     <tr><td>08/11 08:00</td><td>Uỷ quyền TikTok Shop còn 30 ngày (webhook type 7)</td><td><span class="badge b-amber">Đã xem</span></td></tr></tbody></table></div></section>`;
 
@@ -620,8 +723,8 @@ screens.reports = () => `${head("Báo cáo định kỳ", "Gửi lúc 08:00 gi�
     <tr><td>Hoa Sen Home &amp; Living</td><td>Hằng tháng · ngày 1</td><td>ketoan@hoasen.vn</td><td>01/11 08:00</td><td><span class="toggle"></span></td></tr></tbody></table></div>
   <section class="panel" style="max-width:560px"><h2>Xem trước email tuần</h2><div class="kv">
     <span class="k">GMV</span><span class="v">${vnd(sum(days.slice(-8, -1), "gmv"))}</span><span class="k">Đơn hàng</span><span class="v">${n(sum(days.slice(-8, -1), "orders"))}</span>
-    <span class="k">Chi quảng cáo</span><span class="v">${vnd(sum(days.slice(-8, -1), "spend"))}</span><span class="k">ROAS tổng</span><span class="v">${(sum(days.slice(-8, -1), "gmv") / sum(days.slice(-8, -1), "spend")).toFixed(2).replace(".", ",")}×</span>
-    <span class="k">Thực nhận (đã đối soát)</span><span class="v">${vnd(sum(days.slice(-8, -1), "gmv") * 0.84)}</span></div></section>`;
+    <span class="k">Chi quảng cáo</span><span class="v">${vnd(sum(days.slice(-8, -1), "spend"))}</span><span class="k">ROAS TikTok → ROAS thực</span><span class="v">${x2(P.roasTT)} → ${x2(P.roasReal)}</span>
+    <span class="k">Lãi ròng (ước tính)</span><span class="v">${vnd(P.net / 30 * 7)}</span></div></section>`;
 
 screens.connections = () => {
   const sync = [["Hoa Sen Beauty Official", "Đơn hàng", "15 phút", "14:05", "ok", "1.284 đơn"], ["Hoa Sen Beauty Official", "Sản phẩm", "1 giờ", "13:30", "ok", "28 SP"], ["Hoa Sen Beauty Official", "Hoàn/Huỷ", "30 phút", "13:50", "ok", "17 yêu cầu"],
@@ -630,7 +733,7 @@ screens.connections = () => {
     ["Hoa Sen Home — Ads", "Báo cáo QC", "30 phút", "13:15", "err", "40100 quá tần suất — thử lại lúc 14:15"]];
   const sb = s => s === "ok" ? `<span class="badge b-green">Thành công</span>` : s === "warn" ? `<span class="badge b-amber">Cảnh báo</span>` : `<span class="badge b-red">Lỗi</span>`;
   return `${head("Cài đặt · Kết nối", "Quản lý uỷ quyền TikTok Shop, tài khoản quảng cáo và tình trạng đồng bộ", `<button class="btn">Kết nối TikTok Ads</button><button class="btn primary">Kết nối TikTok Shop</button>`)}
-  <div class="tabs"><button class="on">Kết nối</button><button>Chi phí</button><button>Nhóm</button><button>Gói dịch vụ</button></div>
+  <div class="tabs"><a class="tablink on" href="#connections">Kết nối</a><a class="tablink" href="#costs">Chi phí</a><a class="tablink" href="#connections">Nhóm</a><a class="tablink" href="#connections">Gói dịch vụ</a></div>
   <div class="conn-head"><span class="note">Gói PRO · 2 / 5 shop</span><div class="meter"><i style="width:40%"></i></div></div>
   <div class="grid cols-eq">
     <section class="panel conn"><h2>TikTok Shop</h2>
@@ -681,21 +784,103 @@ screens.architecture = () => `${head("Kiến trúc v2", "Tóm tắt docs/archite
   <section class="panel"><h2>Cần xác minh khi có API thật</h2><div class="legend"><span>Tên metric báo cáo Ads</span><span>· Giới hạn 30 ngày/lần</span><span>· store_id có bằng shop_id</span><span>· Tên trường phí đối soát 202501</span><span>· Rate limit</span><span>· Thời hạn refresh token</span></div>
     <p class="note">Chi tiết và cách kiểm từng mục: docs/architecture/09-go-live-checklist.md</p></section>`;
 
+const cogsRates = [0.36, 0.40, 0.47, 0.38, 0.33, 0.44, 0.30, 0.39, 0.41, 0.37, 0.35, 0.43];
+const missingCost = new Set([6, 10, 11]);
+const adFactor = [1, 1.1, 2.7, 0.8, 0.9, 1.5, 0.7, 1, 1, 1.2, 0.8, 1];
+screens["profit-products"] = () => {
+  const rows = products.map((p, i) => { const can = 0.06 + (i % 4) * 0.008, ret = i === 5 ? 0.22 : p.returnRate;
+    const real = p.gmv * (1 - can) * (1 - ret); return { p, i, can, ret, real }; });
+  const sumReal = rows.reduce((s, r) => s + r.real, 0), sumW = rows.reduce((s, r) => s + r.real * adFactor[r.i], 0);
+  rows.forEach(r => { r.fees = r.real * (FEE_R + OTHER_R); r.cogs = r.real * cogsRates[r.i]; const scale = sumReal / P.realized; r.custom = r.p.orders * (PACK + GIFT) * 0.9 + P.fixed * scale * r.real / sumReal;
+    r.ad = P.ad * scale * r.real * adFactor[r.i] / sumW; r.net = r.real - r.fees - r.cogs - r.custom - r.ad; r.margin = r.net / r.real; });
+  rows.sort((a, b) => a.net - b.net);
+  const loss = rows.filter(r => r.net < 0);
+  return `${head("Lãi lỗ sản phẩm", "Đơn đặt 16/10 – 14/11 · sắp xếp theo lãi ròng, sản phẩm lỗ lên đầu", `<button class="btn">Xuất Excel</button>`)}
+  ${loss.length ? `<div class="attn"><div class="attn-item"><div><b>${loss.length} sản phẩm đang lỗ sau quảng cáo: ${loss.map(r => r.p.title.split(" ").slice(0, 3).join(" ")).join(", ")}</b><span>Lỗ tổng ${vnd(-loss.reduce((s, r) => s + r.net, 0))} trong kỳ. Nguyên nhân chính: ${loss.map(r => r.ret > 0.1 ? "tỉ lệ hoàn " + pct(r.ret, 0) : "chi QC phân bổ " + pct(r.ad / r.real, 0) + " doanh thu").join("; ")}.</span></div></div></div>` : ""}
+  <div class="table-wrap"><table><thead><tr><th>Sản phẩm</th><th class="r">Đã bán</th><th class="r">GMV đặt</th><th class="r">Huỷ + hoàn</th><th class="r">Doanh thu thực</th><th class="r">Giá vốn</th><th class="r">Phí sàn + khác</th><th class="r">Chi phí tự nhập</th><th class="r">QC phân bổ</th><th class="r">Lãi ròng</th><th class="r">Biên</th></tr></thead>
+  <tbody>${rows.map(r => `<tr class="${r.net < 0 ? "loss" : ""}"><td><div class="prod">${thumb(r.p)}<div><div class="t">${r.p.title}</div><div class="s">${r.p.skuCount} SKU</div></div></div></td>
+    <td class="r">${n(r.p.units)}</td><td class="r">${vndC(r.p.gmv)}</td><td class="r" style="color:${r.ret > 0.1 ? "var(--bad)" : "inherit"}">${pct(r.can + r.ret)}</td><td class="r">${vndC(r.real)}</td>
+    <td class="r">${missingCost.has(r.i) ? "≈ " : ""}${vndC(r.cogs)}</td><td class="r">${vndC(r.fees)}</td><td class="r">${vndC(r.custom)}</td><td class="r">${vndC(r.ad)}</td>
+    <td class="r"><b style="color:${r.net < 0 ? "var(--bad)" : "var(--good)"}">${vndC(r.net)}</b></td><td class="r">${pct(r.margin)}</td></tr>`).join("")}</tbody></table></div>
+  <p class="note">≈ giá vốn đang dùng mặc định 40% giá bán vì chưa nhập. QC phân bổ theo doanh thu thực và mức chạy quảng cáo của từng sản phẩm; TikTok không trả chi phí quảng cáo theo sản phẩm cho chiến dịch thủ công.</p>`;
+};
+
+let costFilter = "all";
+const customCosts = [
+  { name: "Đóng gói", method: "PER_ORDER", amount: 3500, applies: "SHIPPED", from: "01/09/2026", on: true },
+  { name: "Quà tặng kèm", method: "PER_ORDER", amount: 6000, applies: "SUCCESS", from: "01/10/2026", on: true },
+  { name: "Lương CSKH", method: "MONTHLY_FIXED", amount: 12000000, applies: "", from: "01/09/2026", on: true },
+  { name: "Thuê kho", method: "MONTHLY_FIXED", amount: 6000000, applies: "", from: "01/09/2026", on: true },
+  { name: "Hoa hồng livestream", method: "PERCENT_REVENUE", amount: 2, applies: "", from: "01/11/2026", on: false }];
+const methodLabel = { PER_ORDER: "Cố định mỗi đơn", PERCENT_REVENUE: "% doanh thu thực", MONTHLY_FIXED: "Cố định mỗi tháng" };
+const appliesLabel = { PAID: "Mọi đơn đã thanh toán", SHIPPED: "Đơn đã gửi đi", SUCCESS: "Đơn thành công", "": "—" };
+let costToast = "";
+screens.costs = () => {
+  const skus = []; products.forEach((p, i) => p.sku.split(" / ").forEach((s, j) => skus.push({ p, i, name: s, sid: "1730" + (51200 + i * 10 + j), price: p.price + j * 40000,
+    cost: missingCost.has(i) ? null : Math.round((p.price + j * 40000) * cogsRates[i] / 1000) * 1000, sold: Math.round(p.units / p.skuCount) })));
+  const list = costFilter === "missing" ? skus.filter(s => s.cost == null) : skus;
+  const fmtAmt = c => c.method === "PERCENT_REVENUE" ? c.amount.toString().replace(".", ",") + "%" : vnd(c.amount);
+  return `${head("Cài đặt · Chi phí", "Giá vốn và chi phí tự nhập dùng để tính lãi lỗ. Sửa xong hệ thống tự tính lại từ ngày áp dụng.")}
+  <div class="tabs"><a class="tablink" href="#connections">Kết nối</a><a class="tablink on" href="#costs">Chi phí</a><a class="tablink" href="#costs">Nhóm</a><a class="tablink" href="#costs">Gói dịch vụ</a></div>
+  ${costToast ? `<div class="toast" role="status">${costToast}</div>` : ""}
+  <section class="panel"><h2>Mặc định của shop</h2>
+      <div class="toolbar" style="gap:12px">
+        <label class="select"><span class="note">Giá vốn mặc định cho SKU chưa nhập</span><input class="cell num" id="def-cogs" value="40" style="width:60px"> <span>% giá bán</span></label>
+        <label class="select"><span>Hàng hoàn được nhập lại kho <span class="note">· tắt nếu hàng hoàn thường hỏng</span></span><span class="toggle"></span></label>
+        <span class="note">Đơn hoàn tiền không trả hàng luôn tính mất giá vốn.</span>
+      </div></section>
+    <section class="panel"><h2>Giá vốn theo SKU <small>Hoa Sen Beauty Official</small></h2>
+      <div class="conn-head" style="margin-bottom:10px"><span class="note"><b>87 / 96 SKU</b> đã nhập giá vốn · phần chưa nhập chiếm 7,8% doanh thu</span><div class="meter"><i style="width:90.6%"></i></div></div>
+      <div class="toolbar" style="margin-bottom:10px"><input class="search" id="sku-q" placeholder="Tìm sản phẩm, SKU người bán"><div class="seg" id="cfilter"><button data-f="all" class="${costFilter === "all" ? "on" : ""}">Tất cả</button><button data-f="missing" class="${costFilter === "missing" ? "on" : ""}">Chưa nhập (9)</button></div>
+        <div class="spacer"></div><button class="btn small">Tải file mẫu Excel</button><button class="btn small">Nhập từ Excel</button></div>
+      <div class="table-wrap"><table><thead><tr><th>Sản phẩm / SKU</th><th class="r">Giá bán</th><th class="r">Đã bán 30 ngày</th><th class="r">Giá vốn / đơn vị</th><th>Áp dụng từ</th><th class="r">% giá bán</th></tr></thead><tbody>
+      ${list.map((s, k) => `<tr><td><div class="prod">${thumb(s.p)}<div><div class="t">${s.p.title}</div><div class="s">${s.name} · SKU ${s.sid}</div></div></div></td><td class="r">${vnd(s.price)}</td><td class="r">${n(s.sold)}</td>
+        <td class="r"><input class="cell num" id="cost-${s.sid}" inputmode="numeric" value="${s.cost == null ? "" : n(s.cost)}" placeholder="Chưa nhập" aria-label="Giá vốn ${s.p.title} ${s.name}"></td>
+        <td><input class="cell" id="from-${s.sid}" type="date" value="2026-10-01" aria-label="Áp dụng từ"></td>
+        <td class="r">${s.cost == null ? `<span class="badge b-amber">≈ 40% mặc định</span>` : pct(s.cost / s.price, 0)}</td></tr>`).join("")}
+      </tbody></table></div>
+      <div class="toolbar" style="margin-top:10px"><span class="note">Hiển thị ${list.length} / 96 SKU</span><div class="spacer"></div><button class="btn primary" id="save-cost">Lưu giá vốn</button></div></section>
+  <section class="panel"><h2>Chi phí tự nhập <small>ngoài giá vốn và phí sàn</small></h2>
+    <div class="table-wrap"><table><thead><tr><th>Tên</th><th>Cách tính</th><th class="r">Số tiền</th><th>Áp cho</th><th>Hiệu lực từ</th><th class="r">Trong kỳ</th><th>Bật</th></tr></thead><tbody>
+    ${customCosts.map(c => { const inPeriod = !c.on ? 0 : c.method === "PER_ORDER" ? c.amount * (c.applies === "SHIPPED" ? P.paid - P.cancelled : P.successEq) : c.method === "MONTHLY_FIXED" ? c.amount : P.realized * c.amount / 100;
+      return `<tr><td>${c.name}</td><td>${methodLabel[c.method]}</td><td class="r">${fmtAmt(c)}</td><td>${appliesLabel[c.applies]}</td><td>${c.from}</td><td class="r">${vndC(inPeriod)}</td><td><span class="toggle ${c.on ? "" : "off"}"></span></td></tr>`; }).join("")}
+    </tbody></table></div>
+    <form id="cost-form" class="toolbar" style="margin-top:12px">
+      <input class="search" id="cf-name" style="width:180px" placeholder="Tên chi phí, vd Phí in bill" required>
+      <label class="select"><select id="cf-method"><option value="PER_ORDER">Cố định mỗi đơn</option><option value="PERCENT_REVENUE">% doanh thu thực</option><option value="MONTHLY_FIXED">Cố định mỗi tháng</option></select></label>
+      <input class="search" id="cf-amount" style="width:130px" placeholder="Số tiền hoặc %" required inputmode="decimal">
+      <label class="select"><select id="cf-applies"><option value="SHIPPED">Đơn đã gửi đi</option><option value="SUCCESS">Đơn thành công</option><option value="PAID">Mọi đơn đã thanh toán</option></select></label>
+      <input class="search" id="cf-from" type="date" style="width:150px" value="2026-11-01" aria-label="Hiệu lực từ">
+      <button class="btn primary" type="submit">Thêm chi phí</button></form></section>`;
+};
+screens.costs.after = () => {
+  document.querySelectorAll("#cfilter button").forEach(b => b.onclick = () => { costFilter = b.dataset.f; costToast = ""; render(); });
+  document.getElementById("save-cost").onclick = () => { costToast = "Đã lưu giá vốn. Đang tính lại lãi lỗ từ 01/10/2026…"; render(); };
+  document.getElementById("cost-form").onsubmit = e => { e.preventDefault();
+    const m = document.getElementById("cf-method").value, a = parseFloat(document.getElementById("cf-amount").value.replace(/\./g, "").replace(",", ".")) || 0;
+    const d = document.getElementById("cf-from").value.split("-").reverse().join("/");
+    customCosts.push({ name: document.getElementById("cf-name").value, method: m, amount: a, applies: m === "PER_ORDER" ? document.getElementById("cf-applies").value : "", from: d, on: true });
+    costToast = `Đã thêm chi phí. Đang tính lại lãi lỗ từ ${d}…`; render(); };
+};
+
+
 /* ───────── điều hướng ───────── */
 const navDef = [
-  ["Tổng quan", [["overview", "Tổng quan"]]],
+  ["Điều hành", [["overview", "Lãi lỗ"], ["profit-products", "Lãi lỗ sản phẩm", true]]],
   ["Bán hàng", [["orders", "Đơn hàng"], ["products", "Sản phẩm"], ["returns", "Hoàn / Huỷ", true], ["customers", "Khách hàng"]]],
-  ["Tài chính", [["finance", "Tài chính", true]]],
-  ["Quảng cáo", [["ads", "Quảng cáo"]]],
-  ["Vận hành", [["alerts", "Cảnh báo"], ["reports", "Báo cáo định kỳ"], ["connections", "Cài đặt · Kết nối", true]]],
+  ["Tiền", [["finance", "Đối soát", true], ["ads", "Quảng cáo"]]],
+  ["Vận hành", [["alerts", "Cảnh báo"], ["reports", "Báo cáo định kỳ"]]],
+  ["Cài đặt", [["costs", "Chi phí", true], ["connections", "Kết nối", true]]],
   ["Tài liệu", [["architecture", "Sơ đồ kiến trúc"]]]
 ];
+
 document.getElementById("nav").innerHTML = navDef.map(([g, items]) => `<div class="nav-group">${g}</div>` + items.map(([k, l, isNew]) => `<a href="#${k}" data-k="${k}"><span class="dot"></span>${l}${isNew ? `<span class="new">mới</span>` : ""}</a>`).join("")).join("");
 
 function render() {
   charts.forEach(c => c.dispose()); charts = [];
   let key = location.hash.slice(1); if (!screens[key]) key = "overview";
   const navKey = key === "order-detail" ? "orders" : key;
+  if (key !== "costs") costToast = "";
   document.querySelectorAll("#nav a").forEach(a => a.classList.toggle("active", a.dataset.k === navKey));
   document.getElementById("view").innerHTML = screens[key]();
   screens[key].after && screens[key].after();

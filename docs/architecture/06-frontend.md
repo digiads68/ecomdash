@@ -18,8 +18,9 @@ Giao diện giả định để duyệt: `docs/mockups/index.html` (mở trực 
 Sidebar (`bg-gray-900`, mục đang chọn `bg-primary-600`), nhóm:
 
 ```
-TỔNG QUAN
-  Tổng quan            /overview
+ĐIỀU HÀNH
+  Lãi lỗ               /overview         (trang chủ — 11 §12)
+  Lãi lỗ sản phẩm      /profit/products
 BÁN HÀNG
   Đơn hàng             /orders           (+ /orders/[id])
   Sản phẩm             /products         (+ /products/[id])
@@ -32,7 +33,7 @@ QUẢNG CÁO
 VẬN HÀNH
   Cảnh báo             /alerts
   Báo cáo định kỳ      /reports
-  Cài đặt              /settings         (tab: Kết nối · Chi phí · Nhóm · Gói dịch vụ)
+  Cài đặt              /settings         (tab: Kết nối · Chi phí · Nhóm · Gói dịch vụ; Chi phí = /settings/costs, 11 §12)
 ```
 Bỏ `/shop` và `/analytics` của v1 (nội dung gộp vào Tổng quan và Quảng cáo).
 
@@ -41,7 +42,10 @@ DemoBanner vàng khi `NEXT_PUBLIC_DEMO_MODE=true`: "Chế độ demo — dữ li
 
 ## 3. Màn hình
 
-### 3.1 Tổng quan
+### 3.1 Điều hành lãi lỗ (trang chủ)
+Xem `11-profit-and-loss.md` §12 — thay toàn bộ mô tả "Tổng quan" cũ bên dưới.
+
+### 3.1-cũ Tổng quan (đã thay)
 - Hàng KPI (8 thẻ, 4 cột desktop / 2 cột mobile): GMV, Đơn hàng, AOV, Chi quảng cáo, ROAS tổng, Thực nhận, Lợi nhuận ước tính, Tỉ lệ huỷ. Mỗi thẻ: giá trị, % thay đổi so với kỳ trước (xanh/đỏ; với chi phí & tỉ lệ huỷ thì tăng là đỏ), sparkline 14 ngày.
 - Biểu đồ kết hợp: cột GMV + đường chi QC (trục phải) theo ngày.
 - Phễu trạng thái đơn (5 nhóm, thanh ngang).

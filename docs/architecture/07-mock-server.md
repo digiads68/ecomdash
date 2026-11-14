@@ -71,7 +71,7 @@ PRNG tất định (mulberry32) theo seed. Ngày kinh doanh theo `Asia/Ho_Chi_Mi
 - Trạng thái theo tuổi đơn: <1h có thể UNPAID/ON_HOLD; <1 ngày AWAITING_SHIPMENT/AWAITING_COLLECTION; 1–4 ngày IN_TRANSIT; >3 ngày DELIVERED; >10 ngày COMPLETED. Huỷ 6% (lý do: "Người mua đổi ý", "Hết hàng", "Giao hàng trễ"…). `update_time` đổi khi trạng thái đổi → sync incremental thấy được.
 - Real-time: mỗi `MOCK_TICK_SEC=60` giây sinh đơn mới theo nhịp giờ hiện tại và chuyển trạng thái đơn cũ.
 
-**Hoàn/huỷ**: 4% đơn đã giao có return (REFUND 40%, RETURN_AND_REFUND 55%, REPLACEMENT 5%), lý do thực tế ("Sản phẩm bị lỗi", "Không đúng mô tả", "Giao sai hàng"…). Cancellations tương ứng đơn CANCELLED.
+**Hoàn/huỷ** (đủ lớn để thấy ROAS TikTok vs thực chênh rõ): huỷ 6–9% đơn đã thanh toán; 3–6% đơn đã giao có return; 20% return là hoàn một phần (1 trong nhiều đơn vị); return có `return_line_items` đúng số đơn vị; đơn hoàn có đối soát âm (phí ship hoàn 18.000–28.000₫). Cũ: 4% đơn đã giao có return (REFUND 40%, RETURN_AND_REFUND 55%, REPLACEMENT 5%), lý do thực tế ("Sản phẩm bị lỗi", "Không đúng mô tả", "Giao sai hàng"…). Cancellations tương ứng đơn CANCELLED.
 
 **Tài chính**: đơn COMPLETED có settlement sau 3–7 ngày: hoa hồng sàn 4–6% (theo danh mục), phí giao dịch 4%, phí hạ tầng 3.000/đơn, hoa hồng affiliate 10–20% cho 25% đơn, phí ship seller chịu 0–15.000, VAT 1.5% TNCN/VAT hộ kinh doanh. Statement theo tuần (thứ Hai), PAID cho tuần đã qua, PROCESSING cho tuần hiện tại.
 

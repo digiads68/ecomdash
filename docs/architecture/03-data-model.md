@@ -1,5 +1,7 @@
 # 03 — Mô hình dữ liệu (PostgreSQL / Prisma)
 
+> Bổ sung lãi lỗ: các model `SkuCost`, `CostItem`, `OrderEconomics`, `ShopDailyPnl`, enum `OrderOutcome`/`CostMethod`/`CostAppliesTo`, cột P&L của `ProductDailyStat` và `ReturnRequest.returnedUnits` được định nghĩa ở `11-profit-and-loss.md` §3–§9 — đưa nguyên vào schema. `ShopConfig` dùng định nghĩa ở `11` §3.3 (thay bản dưới).
+
 Schema dưới đây là **nguồn sự thật** cho `packages/database/prisma/schema.prisma`. Migration mới thay thế hoàn toàn hai migration cũ (dự án chưa có dữ liệu production → được phép reset: xoá `prisma/migrations/*`, tạo `20261115000000_v2_init`).
 
 ## 1. Sơ đồ quan hệ
@@ -581,6 +583,8 @@ enum SubscriptionStatus { ACTIVE PAST_DUE CANCELED TRIALING }
 | `AdDailyStat.*` (GMV_MAX) | `cost`, `orders`, `gross_revenue` | |
 
 ## 4. Định nghĩa chỉ số (mọi tầng dùng chung, đặt trong `packages/shared/src/metrics.ts`)
+
+> Mọi chỉ số tiền/lãi lỗ/ROAS: dùng `11-profit-and-loss.md` §7–§8. Bảng dưới chỉ còn hiệu lực cho các chỉ số vận hành (AOV, khách mới…). "Lợi nhuận ước tính" và "ROAS tổng" bên dưới đã bị thay.
 
 | Chỉ số | Công thức |
 |---|---|
