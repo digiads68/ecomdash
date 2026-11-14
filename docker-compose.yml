@@ -1,61 +1,77 @@
-version: "3.9"
+# Infrastructure only:   docker compose up -d postgres redis
+# Full demo:             docker compose --profile demo up --build
+x-app-env: &app-env
+  env_file: .env
+  environment:
+    DATABASE_URL: postgresql://ecomdash:ecomdash@postgres:5432/ecomdash
+    REDIS_URL: redis://redis:6379
+    TIKTOK_SHOP_BASE_URL: http://mock-tiktok:4010/shop
+    TIKTOK_AUTH_BASE_URL: http://mock-tiktok:4010/shop-auth
+    TIKTOK_ADS_BASE_URL: http://mock-tiktok:4010/ads/open_api/v1.3
+    # Authorize URLs are opened by the browser, so they stay on localhost.
+    TIKTOK_SHOP_AUTHORIZE_URL: http://localhost:4010/shop-auth/open/authorize
+    TIKTOK_ADS_AUTHORIZE_URL: http://localhost:4010/ads/portal/auth
+    MOCK_WEBHOOK_URL: http://api:4000/api/webhooks/tiktok
 
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: ecomdash_postgres
-    environment:
-      POSTGRES_USER: ecomdash
-      POSTGRES_PASSWORD: ecomdash
-      POSTGRES_DB: ecomdash
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./infra/docker/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ecomdash"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  clickhouse:
-    image: clickhouse/clickhouse-server:24.4-alpine
-    container_name: ecomdash_clickhouse
-    environment:
-      CLICKHOUSE_DB: ecomdash
-      CLICKHOUSE_USER: default
-      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
-    ports:
-      - "8123:8123"
-      - "9000:9000"
-    volumes:
-      - clickhouse_data:/var/lib/clickhouse
-      - ./infra/docker/clickhouse/init.sql:/docker-entrypoint-initdb.d/init.sql
-    ulimits:
-      nofile:
-        soft: 262144
-        hard: 262144
-    healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8123/ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+    environment: { POSTGRES_USER: ecomdash, POSTGRES_PASSWORD: ecomdash, POSTGRES_DB: ecomdash }
+    ports: ["5432:5432"]
+    volumes: [postgres_data:/var/lib/postgresql/data]
+    healthcheck: { test: ["CMD-SHELL", "pg_isready -U ecomdash"], interval: 5s, timeout: 5s, retries: 10 }
 
   redis:
     image: redis:7-alpine
-    container_name: ecomdash_redis
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+    command: ["redis-server", "--appendonly", "yes"]
+    ports: ["6379:6379"]
+    volumes: [redis_data:/data]
+    healthcheck: { test: ["CMD", "redis-cli", "ping"], interval: 5s, timeout: 5s, retries: 10 }
+
+  mock-tiktok:
+    profiles: [demo]
+    build: .
+    image: ecomdash-app
+    <<: *app-env
+    working_dir: /app/apps/mock-tiktok
+    command: ["npx", "tsx", "src/server.ts"]
+    ports: ["4010:4010"]
+
+  api:
+    profiles: [demo]
+    image: ecomdash-app
+    <<: *app-env
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      mock-tiktok: { condition: service_started }
+    working_dir: /app
+    command: ["sh", "-c", "pnpm --filter @ecomdash/database db:migrate && pnpm --filter @ecomdash/database db:seed && cd apps/api && node dist/main"]
+    ports: ["4000:4000"]
+    healthcheck: { test: ["CMD", "curl", "-sf", "http://localhost:4000/api/health"], interval: 5s, timeout: 5s, retries: 30 }
+
+  web:
+    profiles: [demo]
+    image: ecomdash-app
+    <<: *app-env
+    depends_on: [api]
+    working_dir: /app/apps/web
+    command: ["sh", "-c", "NODE_ENV=production npx next start -p 3000"]
+    ports: ["3000:3000"]
+
+  demo-connect:
+    profiles: [demo]
+    image: ecomdash-app
+    <<: *app-env
+    depends_on:
+      api: { condition: service_healthy }
+    working_dir: /app
+    environment:
+      API_PUBLIC_URL: http://api:4000
+      MOCK_URL: http://mock-tiktok:4010
+    command: ["pnpm", "demo:connect"]
+    restart: "no"
 
 volumes:
   postgres_data:
-  clickhouse_data:
   redis_data:

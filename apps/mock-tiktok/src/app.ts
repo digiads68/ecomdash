@@ -1,5 +1,5 @@
 import Fastify, { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import { randomBytes } from "crypto";
+import { createHmac, randomBytes } from "crypto";
 import { signShopRequest } from "@ecomdash/tiktok-client";
 import { buildAdvertisers, campaignDay, CampaignW } from "./ads";
 import { hashSeed, rng } from "./rng";
@@ -38,6 +38,20 @@ export function buildApp(world: World): { app: FastifyInstance; state: MockState
   app.register(require("@fastify/formbody"));
 
   const realNow = () => Math.floor(Date.now() / 1000);
+  // Tokens are self-validating (HMAC) so they survive a mock restart, like real TikTok tokens do.
+  const tokKey = `${cfg.appSecret}|${cfg.adsSecret}|${cfg.seed}`;
+  const signedTok = (prefix: string, kind: string, exp: number) => {
+    const body = Buffer.from(JSON.stringify({ k: kind, e: exp, n: randomBytes(6).toString("hex") })).toString("base64url");
+    return `${prefix}${body}.${createHmac("sha256", tokKey).update(body).digest("base64url").slice(0, 22)}`;
+  };
+  const readTok = (tok: string | undefined, kind: string): number | undefined => {
+    const rest = tok?.replace(/^(ROW_AT_|ROW_RT_|act\.)/, "") ?? "";
+    const dot = rest.lastIndexOf(".");
+    const body = rest.slice(0, dot), mac = rest.slice(dot + 1);
+    if (dot < 1 || createHmac("sha256", tokKey).update(body).digest("base64url").slice(0, 22) !== mac) return undefined;
+    try { const p = JSON.parse(Buffer.from(body, "base64url").toString()); return p.k === kind ? p.e : undefined; } catch { return undefined; }
+  };
+  const shopTokenExp = (t?: string) => (t && state.shopTokens.has(t) ? state.shopTokens.get(t) : readTok(t, "sa"));
   const issueCode = (kind: "shop" | "ads") => {
     const code = tok(kind === "shop" ? "TTP_" : "ADS_");
     state.authCodes.set(code, { kind, expiresAt: realNow() + 1800 });
@@ -60,7 +74,7 @@ export function buildApp(world: World): { app: FastifyInstance; state: MockState
     const expected = signShopRequest({ path: apiPath, query: q as Record<string, string>, body: raw || undefined, appSecret: cfg.appSecret });
     if (q.sign !== expected) return reply.send(errBody(106001, "Invalid signature"));
     const token = req.headers["x-tts-access-token"] as string | undefined;
-    const exp = token ? state.shopTokens.get(token) : undefined;
+    const exp = shopTokenExp(token);
     if (exp === undefined) return reply.send(errBody(36009004, "Invalid access token"));
     if (exp < now) return reply.send(errBody(105002, "Access token is expired"));
     if (apiPath.startsWith("/authorization/")) {
@@ -300,11 +314,9 @@ export function buildApp(world: World): { app: FastifyInstance; state: MockState
   });
 
   const tokenResponse = () => {
-    const access = tok("ROW_AT_");
-    const refresh = tok("ROW_RT_");
     const now = realNow();
-    state.shopTokens.set(access, now + cfg.accessTtlSec);
-    state.refreshTokens.set(refresh, now + 365 * 86_400);
+    const access = signedTok("ROW_AT_", "sa", now + cfg.accessTtlSec);
+    const refresh = signedTok("ROW_RT_", "sr", now + 365 * 86_400);
     return {
       access_token: access, access_token_expire_in: now + cfg.accessTtlSec, refresh_token: refresh, refresh_token_expire_in: now + 365 * 86_400,
       open_id: "mock_open_id_hoasen", seller_name: "Công ty TNHH Mỹ Phẩm Hoa Sen", seller_base_region: "VN", user_type: 0,
@@ -322,9 +334,9 @@ export function buildApp(world: World): { app: FastifyInstance; state: MockState
   app.get("/shop-auth/api/v2/token/refresh", async (req) => {
     const q = req.query as Q;
     if (q.app_key !== cfg.appKey || q.app_secret !== cfg.appSecret) return errBody(36009004, "Invalid app credentials");
-    const exp = state.refreshTokens.get(q.refresh_token ?? "");
-    if (!exp || exp < realNow()) return errBody(105002, "Refresh token is invalid or expired");
-    state.refreshTokens.delete(q.refresh_token!);
+    const exp = readTok(q.refresh_token, "sr");
+    if (!exp || exp < realNow() || state.refreshTokens.has(q.refresh_token!)) return errBody(105002, "Refresh token is invalid or expired");
+    state.refreshTokens.set(q.refresh_token!, 0); // single use
     return okBody(tokenResponse());
   });
 
@@ -340,7 +352,7 @@ export function buildApp(world: World): { app: FastifyInstance; state: MockState
 
   const ADS = "/ads/open_api/v1.3";
   const adsOk = (data: unknown) => okBody(data);
-  const adsAuth = (req: FastifyRequest) => state.adsTokens.has((req.headers["access-token"] as string) ?? "");
+  const adsAuth = (req: FastifyRequest) => !!readTok(req.headers["access-token"] as string | undefined, "ads");
   const parseArr = (v?: string): string[] => { try { return v ? JSON.parse(v) : []; } catch { return []; } };
   const advById = (id?: string) => advertisers.find((a) => a.id === id);
 
@@ -350,8 +362,7 @@ export function buildApp(world: World): { app: FastifyInstance; state: MockState
     const c = state.authCodes.get(b.auth_code ?? "");
     if (!c || c.kind !== "ads") return errBody(40002, "Invalid auth_code");
     state.authCodes.delete(b.auth_code);
-    const t = tok("act.");
-    state.adsTokens.add(t);
+    const t = signedTok("act.", "ads", 4_102_444_800);
     return adsOk({ access_token: t, advertiser_ids: advertisers.map((a) => a.id), scope: [1, 2, 3, 4] });
   });
 
@@ -466,7 +477,7 @@ export function buildApp(world: World): { app: FastifyInstance; state: MockState
     return { ok: true, clockOffsetSec: world.clockOffsetSec };
   });
   app.post("/__mock/reset", async () => { world.clockOffsetSec = 0; return { ok: true }; });
-  app.post("/__mock/expire-tokens", async () => { for (const k of state.shopTokens.keys()) state.shopTokens.set(k, 0); return { ok: true }; });
+  app.post("/__mock/expire-token", async (req) => { state.shopTokens.set((req.query as Q).token ?? "", 0); return { ok: true }; });
   app.get("/__mock/state", async (req) => {
     const days = Number((req.query as Q).days) || 30;
     const now = world.now();

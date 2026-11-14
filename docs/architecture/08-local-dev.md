@@ -19,7 +19,7 @@ NEXT_PUBLIC_DEMO_MODE=true
 DATABASE_URL=postgresql://ecomdash:ecomdash@localhost:5432/ecomdash
 REDIS_URL=redis://localhost:6379
 SYNC_WORKER=true
-BACKFILL_DAYS=30
+BACKFILL_DAYS=60
 
 # URL
 APP_URL=http://localhost:3000
@@ -80,7 +80,9 @@ pnpm demo
 5. Chờ api sẵn sàng (`/api/health`), gọi `pnpm demo:connect` — script dùng `/__mock/auto-authorize` + callback của api để tạo kết nối Shop và Ads như người dùng bấm thật, rồi chờ backfill xong (poll `/api/sync/status`).
 6. In: "Mở http://localhost:3000".
 
-Dừng: Ctrl+C. Xoá sạch dữ liệu: `pnpm demo:reset` (drop database + flush Redis).
+Dừng: Ctrl+C. Xoá sạch dữ liệu: `pnpm demo:reset` (`prisma migrate reset` + seed + flush Redis; Prisma sẽ từ chối nếu lệnh do một AI agent chạy mà chưa có xác nhận của người dùng).
+
+Token do mock cấp được ký HMAC nên vẫn hợp lệ sau khi mock khởi động lại. `SYNC_INTERVAL_FACTOR=0.2` làm lịch đồng bộ nhanh gấp 5 lần (đơn mỗi 3 phút) để thấy dữ liệu chạy.
 
 ## 4. Cách B — Docker
 

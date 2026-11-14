@@ -1,230 +1,116 @@
 "use client";
 
-import Link from "next/link";
-import { useQuery } from "@tanstack/react-query";
-import { useApiClient } from "@/lib/api-client";
-import { useShopStore, getDateRangeValues } from "@/lib/stores/shop-store";
-import { formatVND, formatVNDCompact, formatNumber, formatROAS } from "@/lib/format";
-import { MetricCard } from "@/components/metrics/MetricCard";
-import { DateRangePicker } from "@/components/metrics/DateRangePicker";
-import { BudgetForecastWidget } from "@/components/metrics/BudgetForecastWidget";
-import { cn } from "@/lib/utils";
+import { useState } from "react";
+import type { AdsOverviewDto, CampaignRowDto } from "@ecomdash/shared";
+import { Chart, C, axisX, axisY, legend } from "@/components/Chart";
+import { Badge, Empty, ErrorBox, KpiCard, Loading, PageHeader, Panel, TableWrap, Tabs, Tag, Td, Th, Toggle } from "@/components/ui";
+import { useApi } from "@/lib/api";
+import { formatDay, formatNumber, formatPct, formatRoas, formatVND, formatVNDCompact } from "@/lib/format";
 
-interface Campaign {
-  campaignId: string;
-  name: string;
-  spend: number;
-  impressions: number;
-  clicks: number;
-  conversions: number;
-  gmv: number;
-  ctr: number;
-  roas: number;
-}
-
-function ROASBadge({ value }: { value: number }) {
-  const label = formatROAS(value);
-
-  const colorClass =
-    value >= 4
-      ? "bg-green-100 text-green-700 ring-green-200"
-      : value >= 2
-      ? "bg-blue-100 text-blue-700 ring-blue-200"
-      : value >= 1
-      ? "bg-yellow-100 text-yellow-700 ring-yellow-200"
-      : "bg-red-100 text-red-700 ring-red-200";
-
-  return (
-    <span
-      className={cn(
-        "inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ring-1 ring-inset",
-        colorClass
-      )}
-    >
-      {label}
-    </span>
-  );
-}
-
-function TableSkeleton() {
-  return (
-    <div className="divide-y divide-gray-100">
-      {Array.from({ length: 5 }).map((_, i) => (
-        <div key={i} className="flex items-center gap-4 px-6 py-4">
-          <div className="animate-pulse bg-gray-200 rounded h-4 flex-1" />
-          <div className="animate-pulse bg-gray-200 rounded h-4 w-24" />
-          <div className="animate-pulse bg-gray-200 rounded h-4 w-20" />
-          <div className="animate-pulse bg-gray-200 rounded h-4 w-16" />
-          <div className="animate-pulse bg-gray-200 rounded h-4 w-14" />
-          <div className="animate-pulse bg-gray-200 rounded h-4 w-16" />
-          <div className="animate-pulse bg-gray-200 rounded h-6 w-16" />
-        </div>
-      ))}
-    </div>
-  );
-}
+const VS: Record<string, [string, "green" | "amber" | "red" | "gray"]> = { PROFIT: ["Có lãi", "green"], NEAR_BREAKEVEN: ["Sát hoà vốn", "amber"], LOSS: ["Đang lỗ", "red"], NO_SPEND: ["Không chi", "gray"] };
 
 export default function AdsPage() {
-  const fetchWithAuth = useApiClient();
-  const { selectedAdAccountId, dateRange } = useShopStore();
-
-  const { from, to } = getDateRangeValues(dateRange);
-
-  const { data: campaigns, isLoading } = useQuery<Campaign[]>({
-    queryKey: ["campaigns", selectedAdAccountId, dateRange],
-    queryFn: () =>
-      fetchWithAuth<Campaign[]>(
-        `/campaigns?adAccountId=${selectedAdAccountId}&from=${from.toISOString()}&to=${to.toISOString()}`
-      ),
-    enabled: !!selectedAdAccountId,
-    staleTime: 60_000,
-    placeholderData: (prev) => prev,
-  });
-
-  // Aggregated KPI totals
-  const totalSpend = campaigns?.reduce((sum, c) => sum + c.spend, 0) ?? 0;
-  const totalImpressions = campaigns?.reduce((sum, c) => sum + c.impressions, 0) ?? 0;
-  const totalClicks = campaigns?.reduce((sum, c) => sum + c.clicks, 0) ?? 0;
-  const totalGmv = campaigns?.reduce((sum, c) => sum + c.gmv, 0) ?? 0;
-  const totalROAS = totalSpend > 0 ? totalGmv / totalSpend : 0;
-
-  // Empty state — no ad account selected
-  if (!selectedAdAccountId) {
-    return (
-      <div className="min-h-[60vh] flex items-center justify-center">
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-10 text-center max-w-sm w-full">
-          <div className="text-4xl mb-4">📢</div>
-          <h2 className="text-lg font-semibold text-gray-800 mb-2">
-            Chưa có tài khoản quảng cáo
-          </h2>
-          <p className="text-sm text-gray-500 mb-6">
-            Vui lòng kết nối tài khoản quảng cáo TikTok để xem dữ liệu chiến dịch.
-          </p>
-          <Link
-            href="/settings"
-            className="inline-flex items-center justify-center px-4 py-2 rounded-lg bg-blue-500 text-white text-sm font-medium hover:bg-blue-600 transition-colors"
-          >
-            Đi đến Cài đặt
-          </Link>
-        </div>
-      </div>
-    );
-  }
-
+  const [tab, setTab] = useState<"overview" | "MANUAL" | "GMV_MAX">("overview");
+  const ov = useApi<AdsOverviewDto>("/ads/overview");
+  const camps = useApi<CampaignRowDto[]>("/ads/campaigns", { kind: tab === "overview" ? undefined : tab }, { enabled: tab !== "overview" });
+  const d = ov.data;
+  const be = d?.totals.breakEven.value;
+  const note = d && (
+    <p className="text-[13px] text-gray-500">
+      ROAS thực = ROAS TikTok × {formatPct(d.realizationRate, 0)} (phần doanh thu shop giữ lại sau huỷ/hoàn trong kỳ). ROAS hoà vốn của shop: <b className="text-gray-900">{formatRoas(be)}</b>.
+      Đây là ước tính vì TikTok không cho biết đơn nào của chiến dịch bị huỷ/hoàn.{d.allocation === "PROPORTIONAL" && " Tài khoản quảng cáo chạy cho nhiều shop — chi phí được chia theo tỉ lệ GMV."}
+    </p>
+  );
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Quảng cáo TikTok</h1>
-          <p className="text-sm text-gray-500 mt-0.5">
-            Hiệu suất chiến dịch quảng cáo — dữ liệu cập nhật mỗi 15 phút
-          </p>
-        </div>
-        <DateRangePicker />
-      </div>
-
-      {/* KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <MetricCard
-          label="Chi phí"
-          value={isLoading ? "—" : formatVNDCompact(totalSpend)}
-          loading={isLoading && !campaigns}
-        />
-        <MetricCard
-          label="ROAS"
-          value={isLoading ? "—" : formatROAS(totalROAS)}
-          loading={isLoading && !campaigns}
-        />
-        <MetricCard
-          label="Lượt hiển thị"
-          value={isLoading ? "—" : formatNumber(totalImpressions)}
-          loading={isLoading && !campaigns}
-        />
-        <MetricCard
-          label="Lượt nhấp"
-          value={isLoading ? "—" : formatNumber(totalClicks)}
-          loading={isLoading && !campaigns}
-        />
-      </div>
-
-      {/* Budget Forecast Widget */}
-      <BudgetForecastWidget adAccountId={selectedAdAccountId} />
-
-      {/* Campaigns Table */}
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-100">
-          <h2 className="text-base font-semibold text-gray-900">Chiến dịch</h2>
-        </div>
-
-        {isLoading && !campaigns ? (
-          <TableSkeleton />
-        ) : !campaigns || campaigns.length === 0 ? (
-          <div className="px-6 py-12 text-center text-sm text-gray-500">
-            Không có dữ liệu chiến dịch cho khoảng thời gian này.
+    <>
+      <PageHeader title="Quảng cáo" subtitle="Shop Ads thủ công và GMV Max · so sánh ROAS TikTok báo với ROAS thực sau huỷ/hoàn" />
+      <Tabs value={tab} onChange={setTab} items={[{ value: "overview", label: "Tổng quan" }, { value: "MANUAL", label: "Chiến dịch thủ công" }, { value: "GMV_MAX", label: "GMV Max" }]} />
+      {ov.error && <ErrorBox error={ov.error} onRetry={() => ov.refetch()} />}
+      {!d && !ov.error && <Loading />}
+      {d && d.allocation === "NONE" && <Empty title="Chưa có tài khoản quảng cáo gắn với shop này">Kết nối TikTok Ads và chọn shop cho từng store ở <a className="text-primary-600 underline" href="/settings/connections">Cài đặt → Kết nối</a>.</Empty>}
+      {d && d.allocation !== "NONE" && tab === "overview" && (
+        <>
+          <div className="grid grid-cols-2 gap-3.5 md:grid-cols-3 xl:grid-cols-6">
+            <KpiCard label="Chi tiêu" value={formatVNDCompact(d.totals.spend.value)} kpi={d.totals.spend} inverse />
+            <KpiCard label="ROAS TikTok" value={formatRoas(d.totals.roasTiktok.value)} kpi={d.totals.roasTiktok} />
+            <KpiCard label="ROAS thực" value={formatRoas(d.totals.roasReal.value)} kpi={d.totals.roasReal} tag="sau huỷ/hoàn" />
+            <KpiCard label="ROAS hoà vốn" value={formatRoas(d.totals.breakEven.value)} kpi={d.totals.breakEven} inverse />
+            <KpiCard label="Chi QC / đơn thành công" value={formatVND(d.totals.spendPerSuccessOrder.value)} kpi={d.totals.spendPerSuccessOrder} inverse />
+            <KpiCard label="CTR" value={formatPct(d.totals.ctr.value, 2)} kpi={d.totals.ctr} />
           </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-100">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">
-                    Chiến dịch
-                  </th>
-                  <th className="px-6 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide">
-                    Chi phí (VND)
-                  </th>
-                  <th className="px-6 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide">
-                    Lượt hiển thị
-                  </th>
-                  <th className="px-6 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide">
-                    Lượt nhấp
-                  </th>
-                  <th className="px-6 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide">
-                    CTR (%)
-                  </th>
-                  <th className="px-6 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide">
-                    Chuyển đổi
-                  </th>
-                  <th className="px-6 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide">
-                    ROAS
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100 bg-white">
-                {campaigns.map((campaign) => (
-                  <tr
-                    key={campaign.campaignId}
-                    className="hover:bg-gray-50 transition-colors"
-                  >
-                    <td className="px-6 py-4 text-sm font-medium text-gray-900 max-w-xs truncate">
-                      {campaign.name}
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-700 text-right tabular-nums">
-                      {formatVND(campaign.spend)}
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-700 text-right tabular-nums">
-                      {formatNumber(campaign.impressions)}
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-700 text-right tabular-nums">
-                      {formatNumber(campaign.clicks)}
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-700 text-right tabular-nums">
-                      {campaign.ctr.toFixed(2)}%
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-700 text-right tabular-nums">
-                      {formatNumber(campaign.conversions)}
-                    </td>
-                    <td className="px-6 py-4 text-right">
-                      <ROASBadge value={campaign.roas} />
-                    </td>
+          <div className="grid gap-3.5 md:grid-cols-2">
+            <Source title="Shop Ads thủ công" tag="Video · LIVE · Product Shopping" s={d.manual} />
+            <Source title="GMV Max" tag="TikTok tính gồm cả đơn tự nhiên" s={d.gmvMax} violet />
+          </div>
+          <div className="grid gap-3.5 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
+            <Panel title="Chi tiêu theo nguồn và ROAS thực" actions={<Badge tone={VS[d.status][1]}>Quảng cáo: {VS[d.status][0]}</Badge>}>
+              <Chart option={{
+                legend, xAxis: axisX(d.daily.map((x) => formatDay(x.date))), yAxis: [axisY((v) => formatVNDCompact(v)), axisY((v) => `${v}×`, { splitLine: { show: false } })],
+                series: [
+                  { name: "Thủ công", type: "bar", stack: "s", data: d.daily.map((x) => Math.round(x.manualSpend)), itemStyle: { color: C.amber }, barMaxWidth: 16 },
+                  { name: "GMV Max", type: "bar", stack: "s", data: d.daily.map((x) => Math.round(x.gmvMaxSpend)), itemStyle: { color: C.violet, borderRadius: [3, 3, 0, 0] } },
+                  { name: "ROAS thực", type: "line", yAxisIndex: 1, data: d.daily.map((x) => (x.roasReal == null ? null : +x.roasReal.toFixed(2))), smooth: true, symbol: "none", lineStyle: { color: C.blue, width: 2 }, itemStyle: { color: C.blue } },
+                  { name: "ROAS hoà vốn", type: "line", yAxisIndex: 1, data: d.daily.map((x) => (x.breakEven == null ? null : +x.breakEven.toFixed(2))), symbol: "none", lineStyle: { color: C.red, width: 1.5, type: "dashed" }, itemStyle: { color: C.red } },
+                ],
+              }} />
+            </Panel>
+            <Panel title="Dự báo ngân sách tháng này">
+              <dl className="grid grid-cols-[1fr_auto] gap-y-1.5 text-[13px]">
+                <dt className="text-gray-500">Đã chi tháng này</dt><dd className="text-right tabular-nums">{formatVND(d.budgetForecast.monthToDateSpend)}</dd>
+                <dt className="text-gray-500">Dự kiến cả tháng</dt><dd className="text-right font-semibold tabular-nums">{formatVND(d.budgetForecast.projectedMonthSpend)}</dd>
+                <dt className="text-gray-500">Ngày đã qua</dt><dd className="text-right tabular-nums">{d.budgetForecast.daysElapsed} / {d.budgetForecast.daysInMonth}</dd>
+              </dl>
+              <div className="mt-3.5 h-2 overflow-hidden rounded-full bg-gray-100"><i className="block h-full bg-primary-500" style={{ width: `${(d.budgetForecast.daysElapsed / d.budgetForecast.daysInMonth) * 100}%` }} /></div>
+              <p className="mt-2 text-xs text-gray-500">Ước tính theo chi tiêu bình quân ngày của tháng hiện tại.</p>
+            </Panel>
+          </div>
+        </>
+      )}
+      {d && d.allocation !== "NONE" && tab !== "overview" && (
+        <>
+          {tab === "GMV_MAX" && <p className="text-[13px] text-gray-500">Doanh thu GMV Max do TikTok tính, gồm cả đơn tự nhiên được quy cho chiến dịch.</p>}
+          {note}
+          {camps.error && <ErrorBox error={camps.error} />}
+          {!camps.data && !camps.error && <Loading rows={2} />}
+          {camps.data && (
+            <TableWrap>
+              <thead><tr><Th>Chiến dịch</Th><Th>Bật</Th><Th right>Ngân sách</Th>{tab === "GMV_MAX" && <Th right>ROI mục tiêu</Th>}<Th right>Chi tiêu</Th><Th right>CTR</Th><Th right>CPC</Th><Th right>Đơn (TikTok)</Th><Th right>Doanh thu (TikTok)</Th><Th right>ROAS TikTok</Th><Th right>ROAS thực ≈</Th><Th>So với hoà vốn</Th></tr></thead>
+              <tbody>
+                {camps.data.map((c) => (
+                  <tr key={c.id} className="hover:bg-gray-50">
+                    <Td><div className="font-medium">{c.name}</div><div className="text-xs text-gray-400">{c.advertiserName}</div></Td>
+                    <Td><Toggle label={c.operationStatus === "ENABLE" ? "Đang bật" : "Đang tắt"} on={c.operationStatus === "ENABLE"} /></Td>
+                    <Td right>{formatVND(c.budget)}<div className="text-xs text-gray-400">{c.budgetMode === "BUDGET_MODE_TOTAL" ? "Tổng" : "Ngày"}</div></Td>
+                    {tab === "GMV_MAX" && <Td right>{formatRoas(c.roasBid)}</Td>}
+                    <Td right>{formatVNDCompact(c.spend)}</Td>
+                    <Td right>{formatPct(c.ctr, 2)}</Td>
+                    <Td right>{formatVND(c.cpc)}</Td>
+                    <Td right>{formatNumber(c.orders)}</Td>
+                    <Td right>{formatVNDCompact(c.grossRevenue)}</Td>
+                    <Td right>{formatRoas(c.roasTiktok)}</Td>
+                    <Td right className="font-semibold">{formatRoas(c.realRoasEstimated)}</Td>
+                    <Td><Badge tone={VS[c.vsBreakEven][1]}>{VS[c.vsBreakEven][0]}</Badge></Td>
                   </tr>
                 ))}
               </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+            </TableWrap>
+          )}
+        </>
+      )}
+    </>
+  );
+}
+
+function Source({ title, tag, s, violet }: { title: string; tag: string; s: AdsOverviewDto["manual"]; violet?: boolean }) {
+  return (
+    <div className="rounded-[10px] border border-gray-200 bg-white p-4">
+      <h3 className="flex items-center gap-2 text-sm font-semibold">{title} <Tag tone={violet ? "violet" : "gray"}>{tag}</Tag></h3>
+      <div className={`mb-0.5 mt-2 text-[26px] font-bold tabular-nums ${violet ? "text-violet-700" : ""}`}>{formatRoas(s.roasReal)} <span className="text-[13px] font-normal text-gray-500">ROAS thực · TikTok báo {formatRoas(s.roasTiktok)}</span></div>
+      <dl className="mt-3 grid grid-cols-3 gap-2">
+        <div><dt className="text-[11px] text-gray-500">Chi tiêu</dt><dd className="font-semibold tabular-nums">{formatVNDCompact(s.spend)}</dd></div>
+        <div><dt className="text-[11px] text-gray-500">Đơn (TikTok)</dt><dd className="font-semibold tabular-nums">{formatNumber(s.orders)}</dd></div>
+        <div><dt className="text-[11px] text-gray-500">Doanh thu (TikTok)</dt><dd className="font-semibold tabular-nums">{formatVNDCompact(s.grossRevenue)}</dd></div>
+      </dl>
     </div>
   );
 }

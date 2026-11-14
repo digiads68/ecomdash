@@ -3,7 +3,7 @@
  * waits for the backfill, then enters sample costs through the public API (docs/architecture/08 §3).
  */
 const API = (process.env.API_PUBLIC_URL ?? "http://localhost:4000") + "/api";
-const MOCK = `http://localhost:${process.env.MOCK_TIKTOK_PORT ?? 4010}`;
+const MOCK = process.env.MOCK_URL ?? `http://localhost:${process.env.MOCK_TIKTOK_PORT ?? 4010}`;
 
 async function api<T = any>(path: string, init?: RequestInit): Promise<T> {
   const r = await fetch(`${API}${path}`, { ...init, headers: { "content-type": "application/json", ...(init?.headers ?? {}) } });

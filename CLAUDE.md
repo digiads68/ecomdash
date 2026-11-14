@@ -1,146 +1,54 @@
 # EcomDash — Developer Guide
 
-> **v2 re-architecture in progress.** The target design lives in `docs/architecture/` (start with `00-overview.md`; work packages in `10-work-packages.md`) and the reviewable UI mockup in `docs/mockups/index.html`. Where this file and `docs/architecture/` disagree, `docs/architecture/` wins. Sections below describe the v1 code still on disk.
+SaaS **profit-and-loss operating dashboard** for TikTok Shop sellers in Vietnam: real order outcomes (success / cancelled / returned / pending), TikTok ROAS vs real ROAS vs break-even ROAS, and a full cost breakdown (SKU cost of goods, platform fees, other platform fees, seller-defined costs, ads).
 
-## Project Overview
+**Design docs are the source of truth:** `docs/architecture/` — start with `00-overview.md`; money/ROAS rules in `11-profit-and-loss.md`; work packages in `10-work-packages.md`. UI reference: `docs/mockups/index.html`, screenshots of the running app in `docs/screenshots/`.
 
-SaaS monitoring platform for TikTok Shop + TikTok Ads targeting Vietnam market. Sellers see all their commerce and advertising data in one unified dashboard instead of juggling 3-5 browser tabs.
-
-## Monorepo Structure
+## Monorepo
 
 ```
-apps/web/        Next.js 14 App Router frontend (port 3000)
-apps/api/        NestJS REST API (port 4000)
-apps/workers/    Python async data pipeline
-packages/database/   Prisma schema + migrations
-packages/shared/     Shared TypeScript types/DTOs
-infra/docker/    PostgreSQL and ClickHouse init SQL
+apps/web/            Next.js 14 dashboard (:3000)
+apps/api/            NestJS REST + BullMQ sync workers + webhook receiver (:4000)
+apps/mock-tiktok/    Fastify simulator of TikTok Shop + Ads APIs (:4010) — dev/demo/tests only
+packages/database/   Prisma schema, migrations, demo-org seed
+packages/shared/     Pure P&L functions (outcome, economics, daily, waterfall, ROAS) + API DTOs
+packages/tiktok-client/  Signed TikTok Shop client, Marketing API client
+scripts/             demo.sh, demo-connect.ts, demo-reset.sh
 ```
 
-## Quick Start (Demo Mode — no TikTok credentials needed)
+Internal packages build to `dist/` (`pnpm build:packages`); rebuild them after editing.
+
+## Run locally (demo data, no TikTok or Clerk keys)
+
+Needs Node ≥ 20, pnpm 9, PostgreSQL ≥ 14 and Redis ≥ 6 (or Docker).
 
 ```bash
-# 1. Start infrastructure
-docker compose up -d
-
-# 2. Install dependencies
 pnpm install
-
-# 3. Copy env and use demo defaults
-cp .env.example .env
-# .env.example already has DEMO_MODE=true and a safe demo ENCRYPTION_KEY
-
-# 4. Run migrations and seed PostgreSQL
-pnpm --filter @ecomdash/database db:migrate
-pnpm --filter @ecomdash/database db:seed
-
-# 5. Seed ClickHouse with 30 days of synthetic data
-cd apps/workers && python seed_clickhouse.py && cd ../..
-
-# 6. Start all services
-pnpm dev
+pnpm demo            # migrates, seeds, builds, starts mock + api + web, connects demo shop & ads, enters sample costs
+# open http://localhost:3000
 ```
 
-In demo mode:
-- Clicking "Kết nối TikTok Shop / Ads" creates a fake shop/ad account instantly (no OAuth popup)
-- The dashboard shows 30 days of synthetic data from the seed script
-- A yellow banner at the top reminds users they are in demo mode
+With Docker: `cp .env.example .env && docker compose --profile demo up --build`.
+Reset demo data: `pnpm demo:reset`. Details: `docs/architecture/08-local-dev.md`.
 
-## Production Setup
+## Tests
 
-1. Register TikTok Shop app at `https://partner.tiktokshop.com`
-2. Register TikTok Ads app at `https://ads.tiktok.com/marketing_api/apps`
-3. Set `DEMO_MODE=false` and `NEXT_PUBLIC_DEMO_MODE=false` in `.env`
-4. Fill in all `TIKTOK_*` credentials and set `TIKTOK_REDIRECT_URI` to match your domain
-
-## Environment Variables
-
-Copy `.env.example` to `.env` and fill in:
-- `CLERK_SECRET_KEY` / `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` — from Clerk dashboard
-- `TIKTOK_APP_KEY` / `TIKTOK_APP_SECRET` — TikTok Shop developer app
-- `TIKTOK_ADS_APP_ID` / `TIKTOK_ADS_APP_SECRET` — TikTok Ads developer app
-- `TIKTOK_REDIRECT_URI` — must match OAuth callback URL registered with TikTok
-- `ENCRYPTION_KEY` — 32-byte base64 string for AES-256-GCM token encryption
-- `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET` — from Stripe dashboard
-- `SENDGRID_API_KEY` — for invite and alert emails
-- `TELEGRAM_BOT_TOKEN` — for Telegram alert notifications
-
-## Architecture Decisions
-
-### Data Storage
-- **PostgreSQL**: org/user/shop/campaign entity data, alert rules, subscriptions
-- **ClickHouse**: all time-series metrics (`metrics_local` table) — GMV, order_count, ad_spend, impressions, clicks, conversions
-- **Redis**: BullMQ job queue, JWKS cache (1h TTL), metrics cache (5min TTL)
-
-### Metrics Schema
-All metrics share one wide table in ClickHouse:
-```
-(tenant_id, shop_id, metric_name, timestamp, value, dimensions Map(String,String))
-```
-ROAS is always computed at query time: `sum(gmv) / sum(ad_spend)`.
-
-### Auth
-Clerk handles auth. The NestJS `ClerkGuard` validates RS256 JWTs against Clerk's JWKS endpoint, caches keys for 1 hour, and extracts `org_id` → `req.orgId`.
-
-All routes require auth unless decorated with `@Public()`.
-
-### Token Encryption
-TikTok OAuth tokens are stored AES-256-GCM encrypted. The same `ENCRYPTION_KEY` is used in both NestJS (`apps/api/src/tiktok/tiktok.service.ts`) and Python workers (`apps/workers/workers/crypto.py`). Format: `base64(nonce[12] + ciphertext + authTag[16])`.
-
-### Multi-tenancy
-`TenantMiddleware` reads `orgId` from Clerk JWT and sets `req.orgId`. Every database query must include `organizationId` in its WHERE clause.
-
-## Plan Limits
-
-| Plan       | Max Shops |
-|-----------|-----------|
-| STARTER   | 1         |
-| PRO       | 5         |
-| ENTERPRISE| Unlimited |
-
-Enforced in `TiktokService.checkShopLimit()` before connecting a new shop.
-
-## Worker Pipeline
-
-Python workers run in `apps/workers/`:
-- Every **15 minutes**: sync shop orders → ClickHouse, sync ad insights → ClickHouse
-- Every **1 hour**: sync product catalog → PostgreSQL, sync campaign list → PostgreSQL
-- Every **5 minutes**: evaluate alert rules → fire notifications if thresholds breached
-
-## Alert System
-
-Alert rules stored as JSONB in PostgreSQL:
-```json
-{
-  "conditions": [{ "metric": "roas", "operator": "lt", "threshold": 1.5, "window": "1h" }],
-  "logic": "AND",
-  "actions": [
-    { "type": "email", "to": "owner@shop.vn" },
-    { "type": "telegram", "chatId": "-100123456" }
-  ]
-}
+```bash
+pnpm --filter @ecomdash/shared test        # P&L math (outcomes, economics, waterfall invariants, ROAS)
+pnpm --filter @ecomdash/tiktok-client test # signing, refresh, backoff, report chunking
+pnpm --filter @ecomdash/mock-tiktok test   # contract tests: real clients against the mock
+pnpm --filter @ecomdash/api test           # mappers
 ```
 
-Supported metrics: `roas`, `gmv`, `ad_spend`, `order_count`, `impressions`, `clicks`.
-Supported operators: `lt`, `lte`, `gt`, `gte`, `eq`.
-Supported windows: `1h`, `2h`, `6h`, `24h`.
+## Key rules (see docs for detail)
 
-## Design System
+- Every query filters by `organizationId`; `req.orgId` comes from `AuthGuard` (`AUTH_MODE=demo` → fixed demo org, `clerk` → JWT `org_id` → `Organization.clerkOrgId`).
+- Money from TikTok arrives as strings → `Decimal(18,2)`; never sum floats in SQL for money columns you store.
+- Periods group orders by **order date** in `Asia/Ho_Chi_Minh`; ads by spend date.
+- P&L is recomputed by the `pnl.recompute` job (`apps/api/src/pnl/pnl-compute.service.ts`) whenever orders, returns, settlements, ad stats or costs change. Pure logic lives in `packages/shared/src/pnl/` — change it there and keep the waterfall invariants test green.
+- TikTok tokens are AES-256-GCM encrypted (`apps/api/src/common/crypto.ts`); Shop access tokens refresh under a Postgres advisory lock.
+- Items marked **[CHƯA XÁC MINH]** in `docs/architecture/01`/`02` must be checked against the real APIs before go-live (`09-go-live-checklist.md`).
 
-- Primary accent: `#3B82F6` (blue-500) — configured as `primary` in Tailwind
-- Positive metric change: `text-green-600` / `bg-green-50`
-- Negative metric change: `text-red-600` / `bg-red-50`
-- Sidebar: `bg-gray-900`, active item `bg-primary-600`
-- All currency in VND via `formatVND()` / `formatVNDCompact()` from `apps/web/lib/format.ts`
-- All dates in `Asia/Ho_Chi_Minh` timezone
+## Design system
 
-## Key Files
-
-| File | Purpose |
-|------|---------|
-| `apps/api/src/auth/clerk.guard.ts` | JWT validation + org extraction |
-| `apps/api/src/metrics/clickhouse.service.ts` | ClickHouse HTTP client |
-| `apps/workers/workers/crypto.py` | Token decrypt/encrypt |
-| `apps/web/lib/api-client.ts` | Fetch wrapper with Clerk JWT |
-| `apps/web/lib/stores/shop-store.ts` | Global shop/date range state |
-| `packages/database/prisma/schema.prisma` | Full data model |
+Primary `#3B82F6`, sidebar `bg-gray-900` with active `bg-primary-600`, good `text-green-600/bg-green-50`, bad `text-red-600/bg-red-50`. Money via `formatVND` / `formatVNDCompact` (`apps/web/lib/format.ts`). UI language: Vietnamese.

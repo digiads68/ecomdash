@@ -1,9 +1,5 @@
 /** @type {import('next').NextConfig} */
-const nextConfig = {
+module.exports = {
+  reactStrictMode: true,
   transpilePackages: ["@ecomdash/shared"],
-  images: {
-    domains: ["picsum.photos"],
-  },
 };
-
-module.exports = nextConfig;

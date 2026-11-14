@@ -168,6 +168,9 @@ Trả `statement_transactions[]`, mỗi phần tử: `revenue_amount`, `fee_tax_
 
 Tên trường con trong `*_breakdown` **[CHƯA XÁC MINH từng tên]** — client giữ nguyên JSON trong `OrderSettlement.raw` và chỉ trích các tổng đã xác minh (`revenue_amount`, `fee_tax_amount`, `shipping_cost_amount`, `settlement_amount`) cùng các phí ở trên vào cột riêng; phí không nhận ra cộng vào `otherFees`.
 
+### 8.2b Giao dịch theo kỳ — `GET /finance/202501/statements/{statement_id}/statement_transactions`
+Trả danh sách giao dịch theo đơn của một kỳ (`order_id` + cùng cấu trúc §8.2), phân trang `page_token`. EcomDash đồng bộ đối soát **theo kỳ** bằng endpoint này (vài trăm lời gọi thay vì một lời gọi mỗi đơn); endpoint theo đơn chỉ dùng khi cần lấy lẻ. Cấu trúc phần tử **[CHƯA XÁC MINH]**.
+
 ### 8.3 Ước tính chưa quyết toán — `GET /finance/202507/orders/unsettled` [D]
 Chỉ dùng ở giai đoạn sau (hiển thị "dự kiến thực nhận"). Không có trong MVP.
 

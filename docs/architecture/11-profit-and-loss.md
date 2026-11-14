@@ -119,6 +119,7 @@ enum OrderOutcome { SUCCESS PARTIAL_RETURN RETURNED CANCELLED PENDING }
 ```
 
 Quy tắc tính:
+- **Quy đổi tiền hoàn**: `refund_total` là tiền trả lại người mua (sau voucher sàn, có thể gồm phí ship). Trước khi phân loại, quy về giá trị hàng: `refundNet = min(itemNet, refund_total × itemNet ÷ payment.total_amount)` — hoàn toàn bộ đơn ⇒ đúng bằng `itemNet`.
 - **Phí khi đã đối soát** (`OrderSettlement` tồn tại): `platformFees = |platformCommission + transactionFee + affiliateCommission + infrastructureFee|`; `settlementAmount = OrderSettlement.settlementAmount`; `otherPlatformFees = realizedRevenue − platformFees − settlementAmount` (phần dư để thác luôn khớp số TikTok trả). `feesEstimated = false`.
 - **Chưa đối soát** (SUCCESS/PARTIAL/RETURNED): dùng tỉ lệ bình quân 30 ngày của shop `r_fee = Σ platformFees / Σ realizedRevenue` và `r_other` tương tự trên các đơn đã đối soát; chưa có đơn nào đối soát → mặc định `r_fee = 9%`, `r_other = 1.5%` (`PNL_DEFAULT_FEE_RATE`, `PNL_DEFAULT_OTHER_RATE`). Đơn RETURNED chưa đối soát: `otherPlatformFees` = phí ship hoàn ước tính 22.000₫ (`PNL_DEFAULT_RETURN_SHIPPING`). `feesEstimated = true`.
 - **CANCELLED**: mọi khoản phí = 0, thực nhận = 0.
