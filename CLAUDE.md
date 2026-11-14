@@ -1,5 +1,7 @@
 # EcomDash — Developer Guide
 
+> **v2 re-architecture in progress.** The target design lives in `docs/architecture/` (start with `00-overview.md`; work packages in `10-work-packages.md`) and the reviewable UI mockup in `docs/mockups/index.html`. Where this file and `docs/architecture/` disagree, `docs/architecture/` wins. Sections below describe the v1 code still on disk.
+
 ## Project Overview
 
 SaaS monitoring platform for TikTok Shop + TikTok Ads targeting Vietnam market. Sellers see all their commerce and advertising data in one unified dashboard instead of juggling 3-5 browser tabs.
