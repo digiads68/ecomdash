@@ -9,6 +9,7 @@
 .venv
 __pycache__
 dist
+dump.rdb
 node_modules
 tsconfig.tsbuildinfo
 venv
