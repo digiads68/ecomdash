@@ -1,31 +1,18 @@
 import "reflect-metadata";
+import { Logger, ValidationPipe } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
-import { ValidationPipe } from "@nestjs/common";
-import { SwaggerModule, DocumentBuilder } from "@nestjs/swagger";
+import { config } from "./config";
 import { AppModule } from "./app.module";
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
-
+  const c = config();
+  const app = await NestFactory.create(AppModule, { rawBody: true });
   app.setGlobalPrefix("api");
-  app.enableCors({
-    origin: process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000",
-    credentials: true,
-  });
-  app.useGlobalPipes(
-    new ValidationPipe({ whitelist: true, transform: true })
-  );
-
-  const config = new DocumentBuilder()
-    .setTitle("EcomDash API")
-    .setVersion("1.0")
-    .addBearerAuth()
-    .build();
-  SwaggerModule.setup("api/docs", app, SwaggerModule.createDocument(app, config));
-
-  const port = process.env.PORT || 4000;
-  await app.listen(port);
-  console.log(`API running on http://localhost:${port}/api`);
+  app.enableCors({ origin: c.APP_URL, credentials: true });
+  app.useGlobalPipes(new ValidationPipe({ transform: true }));
+  app.enableShutdownHooks();
+  await app.listen(c.PORT);
+  new Logger("Bootstrap").log(`API on http://localhost:${c.PORT}/api (AUTH_MODE=${c.AUTH_MODE}, worker=${c.SYNC_WORKER})`);
 }
 
 bootstrap();

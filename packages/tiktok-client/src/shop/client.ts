@@ -2,7 +2,7 @@ import { backoffMs, defaultSleep, fetchText, FetchLike, RateLimiter, resolveFetc
 import { classifyShopCode, errorFor, TikTokApiError } from "../errors";
 import { signShopRequest } from "./sign";
 import type {
-  AuthorizedShop, Envelope, OrderSearchBody, OrderStatementTransactionsData, PageOpts, ProductSearchBody, ReturnSearchBody,
+  AuthorizedShop, Envelope, OrderSearchBody, OrderStatementTransaction, OrderStatementTransactionsData, PageOpts, ProductSearchBody, ReturnSearchBody,
   SearchPage, ShopCancellation, ShopOrder, ShopPerformanceInterval, ShopProductDetail, ShopProductPerformance, ShopProductSummary,
   ShopReturn, ShopStatement, StatementQuery,
 } from "./types";
@@ -156,6 +156,18 @@ export class ShopClient {
 
   iterateStatements(q: StatementQuery) {
     return this.paginate((t) => this.getStatements(q, { pageToken: t }));
+  }
+
+  /** Per-order transactions of one statement (01 §8 — "Transactions by Statement"; item shape [CHƯA XÁC MINH]). */
+  async getStatementTransactions(statementId: string, opts?: PageOpts): Promise<SearchPage<OrderStatementTransaction & { order_id: string }>> {
+    const d = await this.request<{ statement_transactions?: (OrderStatementTransaction & { order_id: string })[]; next_page_token?: string; total_count?: number }>(
+      "GET", `/finance/202501/statements/${encodeURIComponent(statementId)}/statement_transactions`,
+      { query: { page_size: opts?.pageSize ?? 100, page_token: opts?.pageToken, sort_field: "order_create_time" } });
+    return { items: d.statement_transactions ?? [], nextPageToken: d.next_page_token ?? "", totalCount: d.total_count ?? 0 };
+  }
+
+  iterateStatementTransactions(statementId: string) {
+    return this.paginate((t) => this.getStatementTransactions(statementId, { pageToken: t }));
   }
 
   getOrderStatementTransactions(orderId: string): Promise<OrderStatementTransactionsData> {

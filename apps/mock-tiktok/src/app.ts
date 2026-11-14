@@ -160,18 +160,30 @@ export function buildApp(world: World): { app: FastifyInstance; state: MockState
     return okBody({ statements: p.items, next_page_token: p.next });
   });
 
+  app.get("/shop/finance/202501/statements/:sid/statement_transactions", async (req) => {
+    const q = req.query as Q;
+    const sid = (req.params as { sid: string }).sid;
+    const shop = shopOf(req);
+    const now = world.now();
+    const list = world.ordersByShop[shop.idx].filter((o) => o.fees && o.settleTime && o.settleTime <= now && statementId(o.shopIdx, statementTimeFor(o.settleTime)) === sid);
+    const p = paginate(list, Math.min(100, Number(q.page_size) || 20), q.page_token);
+    return okBody({ statement_transactions: p.items.map((o) => ({ order_id: o.id, ...settlementTx(o) })), next_page_token: p.next, total_count: p.total });
+  });
+
   app.get("/shop/finance/202501/orders/:id/statement_transactions", async (req) => {
     const id = (req.params as { id: string }).id;
     const o = world.orderById.get(id);
     const now = world.now();
     if (!o || o.shopIdx !== shopOf(req).idx || !o.fees || !o.settleTime || o.settleTime > now) return okBody({ order_id: id, statement_transactions: [] });
-    const f = o.fees;
-    const st = statementTimeFor(o.settleTime);
+    return okBody({ order_id: id, statement_transactions: [settlementTx(o)] });
+  });
+
+  function settlementTx(o: OrderW) {
+    const f = o.fees!;
+    const st = statementTimeFor(o.settleTime!);
     const sub = o.units.reduce((s, u) => s + u.original, 0);
     const sellerD = o.units.reduce((s, u) => s + u.sellerDiscount, 0);
-    return okBody({
-      order_id: id,
-      statement_transactions: [{
+    return {
         statement_id: statementId(o.shopIdx, st), statement_time: st, currency: "VND",
         revenue_amount: S(f.revenue), fee_tax_amount: S(-(f.commission + f.transaction + f.affiliate + f.infrastructure + f.tax)),
         shipping_cost_amount: S(-(f.shippingCost + f.returnShipping)), settlement_amount: S(f.settlement),
@@ -184,9 +196,8 @@ export function buildApp(world: World): { app: FastifyInstance; state: MockState
             tax: { vat_amount: S(-f.tax) },
           },
         }],
-      }],
-    });
-  });
+      };
+  }
 
   app.post("/shop/return_refund/202309/returns/search", async (req) => {
     const q = req.query as Q;

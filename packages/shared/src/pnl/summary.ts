@@ -85,14 +85,15 @@ export function buildWaterfall(t: PnlTotals, successEq: number): WaterfallStep[]
   const settlement = rev - t.platformFees - t.otherPlatformFees;
   const custom = t.customCostsOrder + t.customCostsFixed;
   const contribution = settlement - t.cogs - custom;
+  const feeTotal = t.platformFees + t.otherPlatformFees;
   const raw: [string, string, number, WaterfallStep["kind"], number][] = [
     ["gross", "GMV đặt hàng", t.grossItemValue, "start", 0],
     ["cancelled", "Huỷ", t.cancelledAmount, "minus", 0],
     ["refund", "Hoàn", t.refundAmount, "minus", 0],
     ["pendingLoss", "Dự kiến huỷ/hoàn (đang chờ)", pendingLoss, "minus", pendingLoss],
     ["revenue", "Doanh thu thực", rev, "subtotal", t.pendingExpected],
-    ["platformFees", "Phí sàn", t.platformFees, "minus", Math.min(t.feesEstimated, t.platformFees)],
-    ["otherFees", "Phí khác trên sàn", t.otherPlatformFees, "minus", Math.max(0, t.feesEstimated - t.platformFees)],
+    ["platformFees", "Phí sàn", t.platformFees, "minus", feeTotal > 0 ? (t.feesEstimated * t.platformFees) / feeTotal : 0],
+    ["otherFees", "Phí khác trên sàn", t.otherPlatformFees, "minus", feeTotal > 0 ? (t.feesEstimated * t.otherPlatformFees) / feeTotal : 0],
     ["settlement", "Thực nhận", settlement, "subtotal", 0],
     ["cogs", "Giá vốn", t.cogs, "minus", t.cogsEstimated],
     ["custom", "Chi phí tự nhập", custom, "minus", t.customBreakdown["_pending_estimate"] ?? 0],
