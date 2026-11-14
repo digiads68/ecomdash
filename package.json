@@ -3,18 +3,23 @@
   "private": true,
   "version": "0.0.1",
   "scripts": {
-    "dev": "turbo run dev",
+    "build:packages": "pnpm --filter @ecomdash/shared --filter @ecomdash/tiktok-client --filter @ecomdash/database build",
+    "dev": "turbo run dev --filter=@ecomdash/mock-tiktok --filter=@ecomdash/api --filter=@ecomdash/web",
     "build": "turbo run build",
     "test": "turbo run test",
-    "lint": "turbo run lint",
-    "db:generate": "turbo run db:generate --filter=@ecomdash/database",
-    "db:migrate": "turbo run db:migrate --filter=@ecomdash/database",
-    "db:seed": "turbo run db:seed --filter=@ecomdash/database"
+    "typecheck": "turbo run typecheck",
+    "db:generate": "pnpm --filter @ecomdash/database db:generate",
+    "db:migrate": "pnpm --filter @ecomdash/database db:migrate",
+    "db:seed": "pnpm --filter @ecomdash/database db:seed",
+    "demo": "bash scripts/demo.sh",
+    "demo:connect": "pnpm --filter @ecomdash/api exec tsx ../../scripts/demo-connect.ts",
+    "demo:reset": "bash scripts/demo-reset.sh"
   },
   "devDependencies": {
     "turbo": "^2.0.0",
     "typescript": "^5.4.0",
-    "prettier": "^3.3.0"
+    "prettier": "^3.3.0",
+    "concurrently": "^9.0.0"
   },
   "engines": {
     "node": ">=20.0.0",

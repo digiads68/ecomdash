@@ -1,3 +1,4 @@
+// Source of truth: docs/architecture/03-data-model.md and 11-profit-and-loss.md
 generator client {
   provider = "prisma-client-js"
 }
@@ -7,26 +8,33 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model Organization {
-  id        String    @id @default(cuid())
-  name      String
-  slug      String    @unique
-  plan      Plan      @default(STARTER)
-  status    OrgStatus @default(ACTIVE)
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+// ───────────── Organisation & users ─────────────
 
-  members       OrganizationMember[]
-  shops         Shop[]
-  adAccounts    AdAccount[]
-  alertRules    AlertRule[]
-  subscription  Subscription?
-  reportConfigs ReportConfig[]
+model Organization {
+  id         String    @id @default(cuid())
+  clerkOrgId String?   @unique
+  name       String
+  slug       String    @unique
+  plan       Plan      @default(STARTER)
+  status     OrgStatus @default(ACTIVE)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  members              OrganizationMember[]
+  sellerAuthorizations SellerAuthorization[]
+  shops                Shop[]
+  adsAuthorizations    AdsAuthorization[]
+  advertisers          Advertiser[]
+  alertRules           AlertRule[]
+  alertInstances       AlertInstance[]
+  reportConfigs        ReportConfig[]
+  syncStates           SyncState[]
+  subscription         Subscription?
 }
 
 model User {
   id          String   @id @default(cuid())
-  clerkUserId String   @unique
+  clerkUserId String?  @unique
   email       String   @unique
   name        String?
   avatarUrl   String?
@@ -51,97 +59,543 @@ model OrganizationMember {
   @@unique([organizationId, userId])
 }
 
-model Shop {
+// ───────────── TikTok Shop connection ─────────────
+
+model SellerAuthorization {
   id                    String     @id @default(cuid())
   organizationId        String
-  tiktokShopId          String     @unique
-  name                  String
-  region                String     @default("VN")
+  openId                String
+  sellerName            String
+  sellerBaseRegion      String
   accessTokenEncrypted  String
   refreshTokenEncrypted String
-  tokenExpiresAt        DateTime?
-  syncStatus            SyncStatus @default(PENDING)
-  lastSyncedAt          DateTime?
+  accessExpiresAt       DateTime
+  refreshExpiresAt      DateTime
+  grantedScopes         String[]
+  status                AuthStatus @default(ACTIVE)
+  lastRefreshedAt       DateTime?
   createdAt             DateTime   @default(now())
+  updatedAt             DateTime   @updatedAt
 
-  organization  Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  adAccounts    AdAccount[]
-  alertRules    AlertRule[]
-  products      Product[]
-  config        ShopConfig?
-  reportConfigs ReportConfig[]
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  shops        Shop[]
+
+  @@unique([organizationId, openId])
+}
+
+model Shop {
+  id                    String   @id @default(cuid())
+  organizationId        String
+  sellerAuthorizationId String
+  tiktokShopId          String
+  cipher                String
+  code                  String?
+  name                  String
+  region                String   @default("VN")
+  sellerType            String   @default("LOCAL")
+  currency              String   @default("VND")
+  timezone              String   @default("Asia/Ho_Chi_Minh")
+  isActive              Boolean  @default(true)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  organization        Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  sellerAuthorization SellerAuthorization   @relation(fields: [sellerAuthorizationId], references: [id], onDelete: Cascade)
+  config              ShopConfig?
+  products            Product[]
+  orders              Order[]
+  statements          Statement[]
+  returns             ReturnRequest[]
+  dailyStats          ShopDailyStat[]
+  dailyPnl            ShopDailyPnl[]
+  productDailyStats   ProductDailyStat[]
+  storeLinks          AdvertiserStoreLink[]
+  alertRules          AlertRule[]
+  reportConfigs       ReportConfig[]
+  skuCosts            SkuCost[]
+  costItems           CostItem[]
+
+  @@unique([organizationId, tiktokShopId])
+  @@index([organizationId])
 }
 
 model ShopConfig {
-  id                 String @id @default(cuid())
-  shopId             String @unique
-  cogsPercent        Float  @default(40)
-  shippingPercent    Float  @default(5)
-  platformFeePercent Float  @default(2)
+  id                 String  @id @default(cuid())
+  shopId             String  @unique
+  defaultCogsPercent Decimal @default(40) @db.Decimal(5, 2)
+  restockReturns     Boolean @default(true)
 
   shop Shop @relation(fields: [shopId], references: [id], onDelete: Cascade)
 }
 
-model ReportConfig {
-  id             String    @id @default(cuid())
-  organizationId String
-  shopId         String
-  frequency      String
-  dayOfWeek      Int?
-  dayOfMonth     Int?
-  recipientEmail String
-  metrics        Json      @default("[\"gmv\",\"roas\",\"ad_spend\",\"order_count\"]")
-  isActive       Boolean   @default(true)
-  lastSentAt     DateTime?
-  createdAt      DateTime  @default(now())
-
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  shop         Shop         @relation(fields: [shopId], references: [id], onDelete: Cascade)
-}
-
-model AdAccount {
-  id                    String     @id @default(cuid())
-  organizationId        String
-  shopId                String?
-  tiktokAdvertiserId    String     @unique
-  name                  String
-  accessTokenEncrypted  String
-  refreshTokenEncrypted String
-  tokenExpiresAt        DateTime?
-  syncStatus            SyncStatus @default(PENDING)
-  lastSyncedAt          DateTime?
-  createdAt             DateTime   @default(now())
-
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  shop         Shop?        @relation(fields: [shopId], references: [id])
-  campaigns    Campaign[]
-}
+// ───────────── Commerce ─────────────
 
 model Product {
-  id             String   @id @default(cuid())
-  shopId         String
-  tiktokProductId String  @unique
-  name           String
-  thumbnailUrl   String?
-  status         String   @default("ACTIVE")
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  id              String   @id @default(cuid())
+  shopId          String
+  tiktokProductId String
+  title           String
+  status          String
+  thumbnailUrl    String?
+  categoryName    String?
+  tiktokCreatedAt DateTime
+  tiktokUpdatedAt DateTime
+  syncedAt        DateTime @default(now())
+
+  shop       Shop               @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  skus       Sku[]
+  dailyStats ProductDailyStat[]
+
+  @@unique([shopId, tiktokProductId])
+}
+
+model Sku {
+  id          String   @id @default(cuid())
+  productId   String
+  tiktokSkuId String
+  sellerSku   String?
+  name        String?
+  salePrice   Decimal  @db.Decimal(18, 2)
+  listPrice   Decimal? @db.Decimal(18, 2)
+  inventory   Int      @default(0)
+
+  product Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  costs   SkuCost[]
+
+  @@unique([productId, tiktokSkuId])
+  @@index([tiktokSkuId])
+}
+
+model Order {
+  id                    String      @id @default(cuid())
+  shopId                String
+  tiktokOrderId         String
+  status                OrderStatus
+  buyerHash             String
+  province              String?
+  currency              String      @default("VND")
+  subTotal              Decimal     @db.Decimal(18, 2)
+  shippingFee           Decimal     @db.Decimal(18, 2)
+  sellerDiscount        Decimal     @db.Decimal(18, 2)
+  platformDiscount      Decimal     @db.Decimal(18, 2)
+  totalAmount           Decimal     @db.Decimal(18, 2)
+  originalProductPrice  Decimal     @db.Decimal(18, 2)
+  isCod                 Boolean     @default(false)
+  isSampleOrder         Boolean     @default(false)
+  paymentMethod         String?
+  shippingProvider      String?
+  shippingType          String?
+  trackingNumber        String?
+  cancelReason          String?
+  cancellationInitiator String?
+  createTime            DateTime
+  updateTime            DateTime
+  paidTime              DateTime?
+  rtsTime               DateTime?
+  deliveryTime          DateTime?
+  cancelTime            DateTime?
+  businessDate          DateTime    @db.Date
+  syncedAt              DateTime    @default(now())
+
+  shop       Shop             @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  lineItems  OrderLineItem[]
+  settlement OrderSettlement?
+  returns    ReturnRequest[]
+  economics  OrderEconomics?
+
+  @@unique([shopId, tiktokOrderId])
+  @@index([shopId, businessDate])
+  @@index([shopId, status])
+  @@index([shopId, buyerHash])
+}
+
+model OrderLineItem {
+  id               String  @id @default(cuid())
+  orderId          String
+  tiktokLineItemId String
+  tiktokProductId  String
+  tiktokSkuId      String
+  productName      String
+  skuName          String?
+  sellerSku        String?
+  skuImage         String?
+  originalPrice    Decimal @db.Decimal(18, 2)
+  salePrice        Decimal @db.Decimal(18, 2)
+  sellerDiscount   Decimal @db.Decimal(18, 2)
+  platformDiscount Decimal @db.Decimal(18, 2)
+  displayStatus    String?
+  isGift           Boolean @default(false)
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@unique([orderId, tiktokLineItemId])
+  @@index([tiktokProductId])
+  @@index([tiktokSkuId])
+}
+
+// ───────────── Finance ─────────────
+
+model Statement {
+  id                 String   @id @default(cuid())
+  shopId             String
+  tiktokStatementId  String
+  statementTime      DateTime
+  currency           String
+  revenueAmount      Decimal  @db.Decimal(18, 2)
+  feeAmount          Decimal  @db.Decimal(18, 2)
+  adjustmentAmount   Decimal  @db.Decimal(18, 2)
+  shippingCostAmount Decimal  @db.Decimal(18, 2)
+  settlementAmount   Decimal  @db.Decimal(18, 2)
+  paymentStatus      String
+  paymentId          String?
 
   shop Shop @relation(fields: [shopId], references: [id], onDelete: Cascade)
+
+  @@unique([shopId, tiktokStatementId])
+  @@index([shopId, statementTime])
+}
+
+model OrderSettlement {
+  id                  String    @id @default(cuid())
+  orderId             String    @unique
+  tiktokStatementId   String?
+  currency            String
+  revenueAmount       Decimal   @db.Decimal(18, 2)
+  shippingCostAmount  Decimal   @db.Decimal(18, 2)
+  feeTaxAmount        Decimal   @db.Decimal(18, 2)
+  platformCommission  Decimal   @default(0) @db.Decimal(18, 2)
+  transactionFee      Decimal   @default(0) @db.Decimal(18, 2)
+  affiliateCommission Decimal   @default(0) @db.Decimal(18, 2)
+  infrastructureFee   Decimal   @default(0) @db.Decimal(18, 2)
+  otherFees           Decimal   @default(0) @db.Decimal(18, 2)
+  taxAmount           Decimal   @default(0) @db.Decimal(18, 2)
+  settlementAmount    Decimal   @db.Decimal(18, 2)
+  raw                 Json
+  settledAt           DateTime?
+  syncedAt            DateTime  @default(now())
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+}
+
+// ───────────── Returns / cancellations ─────────────
+
+model ReturnRequest {
+  id             String     @id @default(cuid())
+  shopId         String
+  orderId        String?
+  tiktokReturnId String
+  tiktokOrderId  String
+  kind           ReturnKind
+  status         String
+  reason         String?
+  refundTotal    Decimal    @default(0) @db.Decimal(18, 2)
+  returnedUnits  Int        @default(0)
+  createTime     DateTime
+  updateTime     DateTime
+  businessDate   DateTime   @db.Date
+
+  shop  Shop   @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  order Order? @relation(fields: [orderId], references: [id])
+
+  @@unique([shopId, tiktokReturnId])
+  @@index([shopId, businessDate])
+  @@index([shopId, tiktokOrderId])
+}
+
+// ───────────── Ads ─────────────
+
+model AdsAuthorization {
+  id                   String     @id @default(cuid())
+  organizationId       String
+  accessTokenEncrypted String
+  scopes               String[]
+  status               AuthStatus @default(ACTIVE)
+  createdAt            DateTime   @default(now())
+  updatedAt            DateTime   @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  advertisers  Advertiser[]
+}
+
+model Advertiser {
+  id                 String   @id @default(cuid())
+  organizationId     String
+  adsAuthorizationId String
+  tiktokAdvertiserId String
+  name               String
+  currency           String   @default("VND")
+  timezone           String   @default("Asia/Ho_Chi_Minh")
+  ownerBcId          String?
+  isActive           Boolean  @default(true)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  organization     Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  adsAuthorization AdsAuthorization      @relation(fields: [adsAuthorizationId], references: [id], onDelete: Cascade)
+  campaigns        Campaign[]
+  storeLinks       AdvertiserStoreLink[]
+  dailyStats       AdDailyStat[]
+
+  @@unique([organizationId, tiktokAdvertiserId])
+}
+
+model AdvertiserStoreLink {
+  id                  String  @id @default(cuid())
+  advertiserId        String
+  storeId             String
+  storeCode           String?
+  storeName           String
+  storeAuthorizedBcId String?
+  shopId              String?
+  matchedBy           String?
+  isGmvMaxAvailable   Boolean @default(false)
+
+  advertiser Advertiser @relation(fields: [advertiserId], references: [id], onDelete: Cascade)
+  shop       Shop?      @relation(fields: [shopId], references: [id])
+
+  @@unique([advertiserId, storeId])
 }
 
 model Campaign {
-  id               String   @id @default(cuid())
-  adAccountId      String
-  tiktokCampaignId String   @unique
+  id               String       @id @default(cuid())
+  advertiserId     String
+  tiktokCampaignId String
   name             String
-  status           String   @default("ACTIVE")
-  objective        String?
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  kind             CampaignKind
+  objectiveType    String?
+  operationStatus  String
+  budgetMode       String?
+  budget           Decimal?     @db.Decimal(18, 2)
+  roasBid          Decimal?     @db.Decimal(10, 2)
+  storeId          String?
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
 
-  adAccount AdAccount @relation(fields: [adAccountId], references: [id], onDelete: Cascade)
+  advertiser Advertiser    @relation(fields: [advertiserId], references: [id], onDelete: Cascade)
+  dailyStats AdDailyStat[]
+
+  @@unique([advertiserId, tiktokCampaignId])
 }
+
+model AdDailyStat {
+  id           String       @id @default(cuid())
+  advertiserId String
+  campaignId   String
+  date         DateTime     @db.Date
+  source       AdStatSource
+  storeId      String?
+  spend        Decimal      @db.Decimal(18, 2)
+  impressions  Int          @default(0)
+  clicks       Int          @default(0)
+  conversions  Int          @default(0)
+  orders       Int          @default(0)
+  grossRevenue Decimal      @default(0) @db.Decimal(18, 2)
+  syncedAt     DateTime     @default(now())
+
+  advertiser Advertiser @relation(fields: [advertiserId], references: [id], onDelete: Cascade)
+  campaign   Campaign   @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@unique([campaignId, date, source])
+  @@index([advertiserId, date])
+}
+
+// ───────────── Daily rollups ─────────────
+
+model ShopDailyStat {
+  id              String   @id @default(cuid())
+  shopId          String
+  date            DateTime @db.Date
+  gmv             Decimal  @db.Decimal(18, 2)
+  orders          Int
+  unitsSold       Int
+  buyers          Int
+  newBuyers       Int
+  cancelledOrders Int
+  cancelledAmount Decimal  @db.Decimal(18, 2)
+  returnRequests  Int
+  refundAmount    Decimal  @db.Decimal(18, 2)
+  codOrders       Int
+  sellerDiscount  Decimal  @db.Decimal(18, 2)
+  pageViews       Int?
+  visitors        Int?
+  analyticsGmv    Decimal? @db.Decimal(18, 2)
+  computedAt      DateTime @default(now())
+
+  shop Shop @relation(fields: [shopId], references: [id], onDelete: Cascade)
+
+  @@unique([shopId, date])
+}
+
+model ProductDailyStat {
+  id                String   @id @default(cuid())
+  shopId            String
+  productId         String
+  date              DateTime @db.Date
+  gmv               Decimal  @db.Decimal(18, 2)
+  orders            Int
+  unitsSold         Int
+  pageViews         Int?
+  impressions       Int?
+  grossItemValue    Decimal  @default(0) @db.Decimal(18, 2)
+  cancelledAmount   Decimal  @default(0) @db.Decimal(18, 2)
+  refundAmount      Decimal  @default(0) @db.Decimal(18, 2)
+  realizedRevenue   Decimal  @default(0) @db.Decimal(18, 2)
+  platformFees      Decimal  @default(0) @db.Decimal(18, 2)
+  otherPlatformFees Decimal  @default(0) @db.Decimal(18, 2)
+  cogs              Decimal  @default(0) @db.Decimal(18, 2)
+  cogsEstimated     Boolean  @default(false)
+  customCosts       Decimal  @default(0) @db.Decimal(18, 2)
+  adSpendAllocated  Decimal  @default(0) @db.Decimal(18, 2)
+  contribution      Decimal  @default(0) @db.Decimal(18, 2)
+  netProfit         Decimal  @default(0) @db.Decimal(18, 2)
+  returnedUnits     Int      @default(0)
+
+  shop    Shop    @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, date])
+  @@index([shopId, date])
+}
+
+// ───────────── Profit & loss ─────────────
+
+model SkuCost {
+  id            String   @id @default(cuid())
+  shopId        String
+  skuId         String
+  unitCost      Decimal  @db.Decimal(18, 2)
+  effectiveFrom DateTime @db.Date
+  note          String?
+  createdAt     DateTime @default(now())
+
+  shop Shop @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  sku  Sku  @relation(fields: [skuId], references: [id], onDelete: Cascade)
+
+  @@unique([skuId, effectiveFrom])
+  @@index([shopId])
+}
+
+model CostItem {
+  id            String        @id @default(cuid())
+  shopId        String
+  name          String
+  method        CostMethod
+  amount        Decimal       @db.Decimal(18, 2)
+  appliesTo     CostAppliesTo @default(SHIPPED)
+  effectiveFrom DateTime      @db.Date
+  effectiveTo   DateTime?     @db.Date
+  isActive      Boolean       @default(true)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  shop Shop @relation(fields: [shopId], references: [id], onDelete: Cascade)
+
+  @@index([shopId])
+}
+
+model OrderEconomics {
+  orderId           String       @id
+  shopId            String
+  businessDate      DateTime     @db.Date
+  outcome           OrderOutcome
+  itemNet           Decimal      @db.Decimal(18, 2)
+  buyerPaid         Decimal      @db.Decimal(18, 2)
+  cancelledAmount   Decimal      @db.Decimal(18, 2)
+  refundAmount      Decimal      @db.Decimal(18, 2)
+  pendingAmount     Decimal      @db.Decimal(18, 2)
+  realizedRevenue   Decimal      @db.Decimal(18, 2)
+  platformFees      Decimal      @db.Decimal(18, 2)
+  otherPlatformFees Decimal      @db.Decimal(18, 2)
+  settlementAmount  Decimal      @db.Decimal(18, 2)
+  feesEstimated     Boolean
+  units             Int
+  costedUnits       Int
+  cogs              Decimal      @db.Decimal(18, 2)
+  cogsEstimated     Boolean
+  customCosts       Decimal      @db.Decimal(18, 2)
+  contribution      Decimal      @db.Decimal(18, 2)
+  computedAt        DateTime     @default(now())
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([shopId, businessDate])
+  @@index([shopId, outcome])
+}
+
+model ShopDailyPnl {
+  id                String   @id @default(cuid())
+  shopId            String
+  date              DateTime @db.Date
+  ordersPaid        Int
+  ordersSuccess     Int
+  ordersPartial     Int
+  ordersReturned    Int
+  ordersCancelled   Int
+  ordersPending     Int
+  grossItemValue    Decimal  @db.Decimal(18, 2)
+  buyerPaid         Decimal  @db.Decimal(18, 2)
+  cancelledAmount   Decimal  @db.Decimal(18, 2)
+  refundAmount      Decimal  @db.Decimal(18, 2)
+  pendingAmount     Decimal  @db.Decimal(18, 2)
+  pendingExpected   Decimal  @db.Decimal(18, 2)
+  realizedRevenue   Decimal  @db.Decimal(18, 2)
+  platformFees      Decimal  @db.Decimal(18, 2)
+  otherPlatformFees Decimal  @db.Decimal(18, 2)
+  settlementAmount  Decimal  @db.Decimal(18, 2)
+  feesEstimated     Decimal  @db.Decimal(18, 2)
+  cogs              Decimal  @db.Decimal(18, 2)
+  cogsEstimated     Decimal  @db.Decimal(18, 2)
+  customCostsOrder  Decimal  @db.Decimal(18, 2)
+  customCostsFixed  Decimal  @db.Decimal(18, 2)
+  customBreakdown   Json     @default("{}")
+  contribution      Decimal  @db.Decimal(18, 2)
+  adSpend           Decimal  @db.Decimal(18, 2)
+  adSpendManual     Decimal  @db.Decimal(18, 2)
+  adSpendGmvMax     Decimal  @db.Decimal(18, 2)
+  tiktokAdRevenue   Decimal  @db.Decimal(18, 2)
+  tiktokAdOrders    Int
+  netProfit         Decimal  @db.Decimal(18, 2)
+  estimatedShare    Decimal  @db.Decimal(5, 4)
+  feeBreakdown      Json     @default("{}")
+  computedAt        DateTime @default(now())
+
+  shop Shop @relation(fields: [shopId], references: [id], onDelete: Cascade)
+
+  @@unique([shopId, date])
+}
+
+// ───────────── Operations ─────────────
+
+model SyncState {
+  id             String        @id @default(cuid())
+  organizationId String
+  scopeType      String
+  scopeId        String
+  resource       String
+  cursor         DateTime?
+  status         SyncRunStatus @default(IDLE)
+  lastStartedAt  DateTime?
+  lastSuccessAt  DateTime?
+  lastError      String?
+  lastWarning    String?
+  itemsLastRun   Int           @default(0)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([scopeType, scopeId, resource])
+}
+
+model WebhookEvent {
+  id                String    @id @default(cuid())
+  ttsNotificationId String    @unique
+  type              Int
+  tiktokShopId      String?
+  payload           Json
+  receivedAt        DateTime  @default(now())
+  processedAt       DateTime?
+}
+
+// ───────────── Alerts, reports, billing ─────────────
 
 model AlertRule {
   id             String   @id @default(cuid())
@@ -160,16 +614,38 @@ model AlertRule {
 }
 
 model AlertInstance {
-  id         String     @id @default(cuid())
-  ruleId     String
-  shopId     String?
-  state      AlertState
-  metadata   Json       @default("{}")
-  firedAt    DateTime   @default(now())
-  resolvedAt DateTime?
+  id             String     @id @default(cuid())
+  ruleId         String?
+  organizationId String
+  shopId         String?
+  kind           String     @default("RULE")
+  title          String
+  state          AlertState
+  metadata       Json       @default("{}")
+  firedAt        DateTime   @default(now())
+  resolvedAt     DateTime?
   acknowledgedAt DateTime?
 
-  rule AlertRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  rule         AlertRule?   @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, state])
+}
+
+model ReportConfig {
+  id             String    @id @default(cuid())
+  organizationId String
+  shopId         String
+  frequency      String
+  dayOfWeek      Int?
+  dayOfMonth     Int?
+  recipientEmail String
+  isActive       Boolean   @default(true)
+  lastSentAt     DateTime?
+  createdAt      DateTime  @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  shop         Shop         @relation(fields: [shopId], references: [id], onDelete: Cascade)
 }
 
 model Subscription {
@@ -185,6 +661,8 @@ model Subscription {
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 }
+
+// ───────────── Enums ─────────────
 
 enum Plan {
   STARTER
@@ -210,11 +688,68 @@ enum MemberStatus {
   SUSPENDED
 }
 
-enum SyncStatus {
-  PENDING
-  SYNCING
-  SYNCED
+enum AuthStatus {
+  ACTIVE
+  NEEDS_REAUTH
+  REVOKED
+}
+
+enum SyncRunStatus {
+  IDLE
+  RUNNING
+  OK
   ERROR
+  BLOCKED
+}
+
+enum OrderStatus {
+  UNPAID
+  ON_HOLD
+  AWAITING_SHIPMENT
+  PARTIALLY_SHIPPING
+  AWAITING_COLLECTION
+  IN_TRANSIT
+  DELIVERED
+  COMPLETED
+  CANCELLED
+}
+
+enum ReturnKind {
+  REFUND
+  RETURN_AND_REFUND
+  REPLACEMENT
+  CANCEL
+  BUYER_CANCEL
+}
+
+enum CampaignKind {
+  MANUAL
+  GMV_MAX
+}
+
+enum AdStatSource {
+  INTEGRATED
+  GMV_MAX
+}
+
+enum OrderOutcome {
+  SUCCESS
+  PARTIAL_RETURN
+  RETURNED
+  CANCELLED
+  PENDING
+}
+
+enum CostMethod {
+  PER_ORDER
+  PERCENT_REVENUE
+  MONTHLY_FIXED
+}
+
+enum CostAppliesTo {
+  PAID
+  SHIPPED
+  SUCCESS
 }
 
 enum AlertState {
