@@ -42,7 +42,7 @@ Một queue `sync` (concurrency 4) + queue `notify` (concurrency 2). JobId cố 
 | `ads.entities` | `{advertiserId}` | 60' | advertiser info, campaign/get, gmv_max/store/list → link khớp shop |
 | `ads.reports` | `{advertiserId}` | 30' | §5 |
 | `rollup.shop` | `{shopId, dates: string[]}` | theo sự kiện | §6 |
-| `pnl.recompute` | `{shopId, fromDate, toDate?}` | sau mỗi rollup/sync QC/sửa chi phí + mỗi 30' cho 45 ngày gần nhất | `11-profit-and-loss.md` §10 |
+| `pnl.recompute` | `{shopId, fromDate, toDate?}` | sau mỗi rollup/sync QC/sửa chi phí + mỗi 30' cho 45 ngày gần nhất | `11-dashboard-metrics.md` §10 |
 | `alerts.evaluate` | — | 5' | §7 |
 | `reports.send` | — | mỗi ngày 08:00 Asia/Ho_Chi_Minh | §8 |
 
@@ -149,7 +149,7 @@ Rule JSON (giữ dạng v1, đổi danh sách metric):
 - operator: `lt`, `lte`, `gt`, `gte`. window: `today`, `24h`, `7d`.
 - `today`/`7d` đọc từ bảng ngày; `24h` đọc thẳng `Order`/`AdDailyStat` (ad chỉ có độ phân giải ngày → `24h` của ad_spend = hôm nay + hôm qua × tỉ lệ giờ; ghi chú trong UI).
 - Rule đang FIRING và điều kiện còn đúng → không tạo instance mới; hết đúng → RESOLVED.
-- Gửi qua queue `notify`: email (SendGrid), Telegram (Bot API). `AUTH_MODE=demo` hoặc thiếu khoá → chỉ log.
+- Gửi qua queue `notify`: email (SendGrid), Telegram (Bot API). Thiếu khoá (như ở demo) → chỉ log.
 
 ## 8. Báo cáo `reports.send`
 Chạy 08:00 giờ VN. `ReportConfig` đến hạn (daily: mỗi ngày; weekly: `dayOfWeek` ISO 1–7 khớp hôm nay; monthly: `dayOfMonth`). Nội dung: GMV, đơn, chi QC, ROAS tổng, thực nhận, top 5 sản phẩm của kỳ trước. Cập nhật `lastSentAt` **sau** khi gửi thành công.
@@ -166,3 +166,7 @@ Chạy 08:00 giờ VN. `ReportConfig` đến hạn (daily: mỗi ngày; weekly: 
 - `GET /api/sync/status` trả mọi `SyncState` của tổ chức (UI Cài đặt → Kết nối).
 - `POST /api/sync/run` `{scopeType, scopeId, resource}` — chạy ngay (nút "Đồng bộ ngay").
 - Log JSON (pino) với `jobName`, `shopId`, `requestId` TikTok, `durationMs`, `items`.
+
+## Vòng đồng bộ theo tổ chức (cập nhật)
+
+Đơn hàng, hoàn/huỷ và báo cáo quảng cáo không còn lịch rời theo shop/advertiser: job `org.round` chạy lần lượt `orders → returns` của mọi shop rồi `ads.reports` của mọi advertiser trong tổ chức, ghi `SyncRound` làm mốc dữ liệu chung. Sản phẩm (60'), đối soát và analytics (360'), chiến dịch & store (60') giữ lịch riêng. Chi tiết: `12-accounts-and-access.md` §4. JobId BullMQ không chứa `:` (dùng `|`).

@@ -252,7 +252,7 @@ a.attn-item:hover { filter: brightness(0.97); }
   <aside class="side" id="side" aria-label="Điều hướng">
     <div class="brand">Ecom<b>Dash</b></div>
     <nav class="nav" id="nav"></nav>
-    <div class="side-foot">Mockup v2.1 · dữ liệu mẫu<br>Lãi lỗ theo docs/architecture/11</div>
+    <div class="side-foot">Mockup v2.1 · dữ liệu mẫu<br>Chỉ số theo docs/architecture/11</div>
   </aside>
   <div class="drawer-shade" id="shade"></div>
   <div class="main">
@@ -450,7 +450,7 @@ screens.overview = () => {
     ["Quảng cáo thủ công", P.adManual, "ADS"], ["Quảng cáo GMV Max", P.adGmv, "ADS"]];
   const grp = { COGS: "Giá vốn", PLATFORM: "Phí sàn", PLATFORM_OTHER: "Phí khác trên sàn", CUSTOM: "Chi phí tự nhập", ADS: "Quảng cáo" };
   let lastG = "";
-  return `${head("Điều hành lãi lỗ", `Hoa Sen Beauty Official · đơn đặt 16/10 – 14/11/2026 · đã chốt ${pct(P.settledShare, 0)} giá trị đơn, phần còn lại là ước tính`)}
+  return `${head("Dashboard", `Hoa Sen Beauty Official · đơn đặt 16/10 – 14/11/2026 · đã chốt ${pct(P.settledShare, 0)} giá trị đơn, phần còn lại là ước tính`)}
   <section class="panel"><h2>Kết cục ${n(P.paid)} đơn đặt trong kỳ <small>gom theo ngày đặt đơn</small></h2>
     <div class="stack">${seg.map(s => `<i style="flex:${s[2]};background:var(${s[3]})" title="${s[0]}"></i>`).join("")}</div>
     <div class="outcomes">
@@ -591,7 +591,7 @@ screens.products.after = () => document.querySelectorAll("[data-s]").forEach(b =
 screens.finance = () => {
   const fees = [["Hoa hồng sàn", P.fees * 0.46], ["Phí giao dịch", P.fees * 0.3], ["Hoa hồng affiliate", P.fees * 0.19], ["Phí hạ tầng", P.fees * 0.05], ["Phí vận chuyển người bán chịu", P.other * 0.62], ["Phí ship hoàn hàng", P.other * 0.28], ["Điều chỉnh, thuế khấu trừ", P.other * 0.1]];
   const settled = P.settle * 0.71;
-  return `${head("Tài chính · Đối soát", "Số tiền TikTok thực trả theo từng đơn và kỳ thanh toán · lãi lỗ xem ở trang Điều hành lãi lỗ", `<button class="btn">Xuất đối soát</button>`)}
+  return `${head("Tài chính · Đối soát", "Số tiền TikTok thực trả theo từng đơn và kỳ thanh toán · lãi ròng xem ở trang Dashboard", `<button class="btn">Xuất đối soát</button>`)}
   <div class="grid kpis">
     ${kpi("Đã đối soát", vndC(settled), 0.192, { tag: "thực nhận" })}
     ${kpi("Chờ đối soát (ước tính)", vndC(P.settle - settled), 0.31, { tag: "≈" })}
@@ -795,7 +795,7 @@ screens["profit-products"] = () => {
     r.ad = P.ad * scale * r.real * adFactor[r.i] / sumW; r.net = r.real - r.fees - r.cogs - r.custom - r.ad; r.margin = r.net / r.real; });
   rows.sort((a, b) => a.net - b.net);
   const loss = rows.filter(r => r.net < 0);
-  return `${head("Lãi lỗ sản phẩm", "Đơn đặt 16/10 – 14/11 · sắp xếp theo lãi ròng, sản phẩm lỗ lên đầu", `<button class="btn">Xuất Excel</button>`)}
+  return `${head("Hiệu quả sản phẩm", "Đơn đặt 16/10 – 14/11 · sắp xếp theo lãi ròng, sản phẩm lỗ lên đầu", `<button class="btn">Xuất Excel</button>`)}
   ${loss.length ? `<div class="attn"><div class="attn-item"><div><b>${loss.length} sản phẩm đang lỗ sau quảng cáo: ${loss.map(r => r.p.title.split(" ").slice(0, 3).join(" ")).join(", ")}</b><span>Lỗ tổng ${vnd(-loss.reduce((s, r) => s + r.net, 0))} trong kỳ. Nguyên nhân chính: ${loss.map(r => r.ret > 0.1 ? "tỉ lệ hoàn " + pct(r.ret, 0) : "chi QC phân bổ " + pct(r.ad / r.real, 0) + " doanh thu").join("; ")}.</span></div></div></div>` : ""}
   <div class="table-wrap"><table><thead><tr><th>Sản phẩm</th><th class="r">Đã bán</th><th class="r">GMV đặt</th><th class="r">Huỷ + hoàn</th><th class="r">Doanh thu thực</th><th class="r">Giá vốn</th><th class="r">Phí sàn + khác</th><th class="r">Chi phí tự nhập</th><th class="r">QC phân bổ</th><th class="r">Lãi ròng</th><th class="r">Biên</th></tr></thead>
   <tbody>${rows.map(r => `<tr class="${r.net < 0 ? "loss" : ""}"><td><div class="prod">${thumb(r.p)}<div><div class="t">${r.p.title}</div><div class="s">${r.p.skuCount} SKU</div></div></div></td>
@@ -820,7 +820,7 @@ screens.costs = () => {
     cost: missingCost.has(i) ? null : Math.round((p.price + j * 40000) * cogsRates[i] / 1000) * 1000, sold: Math.round(p.units / p.skuCount) })));
   const list = costFilter === "missing" ? skus.filter(s => s.cost == null) : skus;
   const fmtAmt = c => c.method === "PERCENT_REVENUE" ? c.amount.toString().replace(".", ",") + "%" : vnd(c.amount);
-  return `${head("Cài đặt · Chi phí", "Giá vốn và chi phí tự nhập dùng để tính lãi lỗ. Sửa xong hệ thống tự tính lại từ ngày áp dụng.")}
+  return `${head("Cài đặt · Chi phí", "Giá vốn và chi phí tự nhập dùng để tính lãi ròng trên Dashboard. Sửa xong hệ thống tự tính lại từ ngày áp dụng.")}
   <div class="tabs"><a class="tablink" href="#connections">Kết nối</a><a class="tablink on" href="#costs">Chi phí</a><a class="tablink" href="#costs">Nhóm</a><a class="tablink" href="#costs">Gói dịch vụ</a></div>
   ${costToast ? `<div class="toast" role="status">${costToast}</div>` : ""}
   <section class="panel"><h2>Mặc định của shop</h2>
@@ -855,18 +855,18 @@ screens.costs = () => {
 };
 screens.costs.after = () => {
   document.querySelectorAll("#cfilter button").forEach(b => b.onclick = () => { costFilter = b.dataset.f; costToast = ""; render(); });
-  document.getElementById("save-cost").onclick = () => { costToast = "Đã lưu giá vốn. Đang tính lại lãi lỗ từ 01/10/2026…"; render(); };
+  document.getElementById("save-cost").onclick = () => { costToast = "Đã lưu giá vốn. Đang tính lại số liệu Dashboard từ 01/10/2026…"; render(); };
   document.getElementById("cost-form").onsubmit = e => { e.preventDefault();
     const m = document.getElementById("cf-method").value, a = parseFloat(document.getElementById("cf-amount").value.replace(/\./g, "").replace(",", ".")) || 0;
     const d = document.getElementById("cf-from").value.split("-").reverse().join("/");
     customCosts.push({ name: document.getElementById("cf-name").value, method: m, amount: a, applies: m === "PER_ORDER" ? document.getElementById("cf-applies").value : "", from: d, on: true });
-    costToast = `Đã thêm chi phí. Đang tính lại lãi lỗ từ ${d}…`; render(); };
+    costToast = `Đã thêm chi phí. Đang tính lại số liệu Dashboard từ ${d}…`; render(); };
 };
 
 
 /* ───────── điều hướng ───────── */
 const navDef = [
-  ["Điều hành", [["overview", "Lãi lỗ"], ["profit-products", "Lãi lỗ sản phẩm", true]]],
+  ["Tổng quan", [["overview", "Dashboard"], ["profit-products", "Hiệu quả sản phẩm", true]]],
   ["Bán hàng", [["orders", "Đơn hàng"], ["products", "Sản phẩm"], ["returns", "Hoàn / Huỷ", true], ["customers", "Khách hàng"]]],
   ["Tiền", [["finance", "Đối soát", true], ["ads", "Quảng cáo"]]],
   ["Vận hành", [["alerts", "Cảnh báo"], ["reports", "Báo cáo định kỳ"]]],

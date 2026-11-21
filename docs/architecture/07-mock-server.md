@@ -99,3 +99,14 @@ apps/mock-tiktok/
     dev-routes.ts
   test/contract.spec.ts   # chạy tiktok-client trên mock: chữ ký sai, thiếu cipher, phân trang, refresh
 ```
+
+## 6. Nhiều seller, Business Center DigiAds, dữ liệu QC phía Shop (bổ sung)
+
+- Ba seller (`SELLERS` trong `src/world.ts`): `hoasen` (2 shop), `may` (1), `bin` (1); token ký HMAC mang `sellerId` — `/authorization/202309/shops` chỉ trả shop của seller đó, cipher của seller khác → `101000`.
+- Trang uỷ quyền giả (Shop và Ads) có ô chọn tài khoản đang đăng nhập; `/__mock/auto-authorize?kind=shop&seller=may`, `?kind=ads&account=digiads`.
+- `/__mock/app-store-authorize?seller=…[&follow=0]`: uỷ quyền từ App Store, callback không có `state`.
+- Ads: mỗi seller tài khoản riêng; principal `digiads` (Business Center DigiAds) thấy Hoa Sen Beauty (chia sẻ vào BC) + Mây + Bin (trong BC DigiAds). Token khách gọi advertiser của khách khác → `40300`.
+- Thời Trang Mây bật tự trả GMV Max: mỗi đơn đã đối soát có `gmv_max_ad_fee_amount` = phần chi tiêu GMV Max của ngày đó chia theo doanh thu đơn (tổng khớp Ads API).
+  Hoa Sen Beauty trả 40% chi tiêu GMV Max tuần trước bằng số dư: mỗi statement có một dòng `GMV_PAYMENT_FOR_ADS`.
+- Analytics phục vụ cả 202405 và 202509 (`gmv_breakdowns`).
+- `MOCK_ADS_DELAY_MIN`: Ads API chỉ thấy dữ liệu tới `now − N phút` (thử cảnh báo QC trễ).

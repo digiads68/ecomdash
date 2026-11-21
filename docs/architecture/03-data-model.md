@@ -1,6 +1,8 @@
 # 03 — Mô hình dữ liệu (PostgreSQL / Prisma)
 
-> Bổ sung lãi lỗ: các model `SkuCost`, `CostItem`, `OrderEconomics`, `ShopDailyPnl`, enum `OrderOutcome`/`CostMethod`/`CostAppliesTo`, cột P&L của `ProductDailyStat` và `ReturnRequest.returnedUnits` được định nghĩa ở `11-profit-and-loss.md` §3–§9 — đưa nguyên vào schema. `ShopConfig` dùng định nghĩa ở `11` §3.3 (thay bản dưới).
+> Tài khoản, quyền, kho chưa gán, vòng đồng bộ: model trong `12-accounts-and-access.md` §7 (schema thật: `packages/database/prisma/schema.prisma`).
+>
+> Bổ sung lãi lỗ: các model `SkuCost`, `CostItem`, `OrderEconomics`, `ShopDailyPnl`, enum `OrderOutcome`/`CostMethod`/`CostAppliesTo`, cột P&L của `ProductDailyStat` và `ReturnRequest.returnedUnits` được định nghĩa ở `11-dashboard-metrics.md` §3–§9 — đưa nguyên vào schema. `ShopConfig` dùng định nghĩa ở `11` §3.3 (thay bản dưới).
 
 Schema dưới đây là **nguồn sự thật** cho `packages/database/prisma/schema.prisma`. Migration mới thay thế hoàn toàn hai migration cũ (dự án chưa có dữ liệu production → được phép reset: xoá `prisma/migrations/*`, tạo `20261115000000_v2_init`).
 
@@ -41,7 +43,7 @@ datasource db {
 
 model Organization {
   id         String    @id @default(cuid())
-  clerkOrgId String?   @unique            // org_id trong JWT Clerk; null với org demo
+  // (bỏ clerkOrgId — tài khoản & quyền: 12-accounts-and-access.md §7)
   name       String
   slug       String    @unique
   plan       Plan      @default(STARTER)
@@ -62,7 +64,7 @@ model Organization {
 
 model User {
   id          String   @id @default(cuid())
-  clerkUserId String?  @unique
+  // (bỏ clerkUserId — xem 12 §7: tiktokOpenId, platformRole, passwordHash)
   email       String   @unique
   name        String?
   avatarUrl   String?
@@ -547,7 +549,7 @@ model Subscription {
 
 enum Plan { STARTER PRO ENTERPRISE }
 enum OrgStatus { ACTIVE SUSPENDED }
-enum MemberRole { OWNER ADMIN MEMBER VIEWER }
+enum MemberRole { OWNER ADMIN MEMBER }   // VIEWER cũ → MEMBER; vai trò DigiAds: PlatformRole (12 §2)
 enum MemberStatus { ACTIVE INVITED SUSPENDED }
 enum AuthStatus { ACTIVE NEEDS_REAUTH REVOKED }
 enum SyncRunStatus { IDLE RUNNING OK ERROR BLOCKED }
@@ -584,7 +586,7 @@ enum SubscriptionStatus { ACTIVE PAST_DUE CANCELED TRIALING }
 
 ## 4. Định nghĩa chỉ số (mọi tầng dùng chung, đặt trong `packages/shared/src/metrics.ts`)
 
-> Mọi chỉ số tiền/lãi lỗ/ROAS: dùng `11-profit-and-loss.md` §7–§8. Bảng dưới chỉ còn hiệu lực cho các chỉ số vận hành (AOV, khách mới…). "Lợi nhuận ước tính" và "ROAS tổng" bên dưới đã bị thay.
+> Mọi chỉ số tiền/lãi lỗ/ROAS: dùng `11-dashboard-metrics.md` §7–§8. Bảng dưới chỉ còn hiệu lực cho các chỉ số vận hành (AOV, khách mới…). "Lợi nhuận ước tính" và "ROAS tổng" bên dưới đã bị thay.
 
 | Chỉ số | Công thức |
 |---|---|

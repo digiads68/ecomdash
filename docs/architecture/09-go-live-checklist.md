@@ -19,7 +19,11 @@
 - [ ] Lấy `app_id`, `secret`.
 
 ## 2. Cấu hình
-- [ ] `AUTH_MODE=clerk`, khoá Clerk thật, bật Organizations trong Clerk, cấu hình webhook Clerk → `/api/auth/webhook`.
+- [ ] `DEMO_MODE=false`, `NEXT_PUBLIC_DEMO_MODE=false`; đặt `ENCRYPTION_KEY`, `STATE_JWT_SECRET`, `PII_SALT` thật.
+- [ ] Seed Super admin đầu tiên: `SEED_ADMIN_EMAIL` + `SEED_ADMIN_PASSWORD` (≥ 8 ký tự) → `pnpm db:seed`; đăng nhập đổi mật khẩu, mời Admin/Mod ở `/admin/staff`.
+- [ ] Web và API **cùng site** để cookie phiên `ecomdash_session` đi kèm (ví dụ proxy `/api` qua domain web, hoặc `app.` + `api.` cùng domain gốc), `APP_URL` https → cookie Secure.
+- [ ] SendGrid cấu hình để gửi thư mời thành viên / nhân viên.
+- [ ] Kết nối Business Center DigiAds ở `/admin/agency`; xác nhận thấy tài khoản khách đã chia sẻ.
 - [ ] Đổi `TIKTOK_*_BASE_URL` về host thật (giá trị trong `01`/`02`).
 - [ ] `ENCRYPTION_KEY`, `STATE_JWT_SECRET`, `PII_SALT` sinh mới (32 byte ngẫu nhiên). **Không đổi `PII_SALT` sau khi có dữ liệu** (sẽ vỡ thống kê khách quay lại).
 - [ ] `NEXT_PUBLIC_DEMO_MODE=false`; không deploy `apps/mock-tiktok`.
@@ -41,6 +45,13 @@
 | 10 | Rate limit thực tế | Theo dõi 36009002/40100 trong log tuần đầu | `TIKTOK_SHOP_RPS`, `TIKTOK_ADS_RPS` |
 | 11 | `district_info` cấp tỉnh | Xem 1 đơn VN thật | `order.mapper.ts` |
 | 12 | Webhook type 1 trạng thái `CANCEL` | Huỷ 1 đơn thử | `webhook normalize` |
+| 13 | `open_id` giữ nguyên khi seller uỷ quyền lại | Uỷ quyền lại cùng tài khoản seller | `connections.service.ts completeShop` (khoá tài khoản khách) |
+| 14 | Uỷ quyền từ App Store không có `state` | Cài app từ Seller Center App Store | kho chưa gán (`/admin/pool`) |
+| 15 | Token BC DigiAds thấy tài khoản khách chia sẻ | Khách chia sẻ 1 tài khoản vào BC, gọi `/oauth2/advertiser/get/` | `completeAds` (agency) |
+| 16 | `gmv_max_ad_fee_amount` có với shop VN, ở cấp nào | Shop bật tự trả GMV Max, xem `raw` của đối soát | `mapSettlement` |
+| 17 | Dòng `GMV_PAYMENT_FOR_ADS` trong statement | Shop trả QC bằng số dư | `shop-sync.service.ts finance` |
+| 18 | `gmv_breakdowns` của analytics 202509 | Gọi 1 ngày | `ShopClient.getShopPerformance` |
+| 19 | `stat_time_day` theo múi giờ tài khoản QC; `stat_time_hour` cho GMV Max | So với Ads Manager | mốc đồng bộ chung (12 §4) |
 
 ## 4. Vận hành
 - [ ] Dashboard theo dõi: số job lỗi theo resource, độ trễ đồng bộ (now − lastSuccessAt), số webhook nhận/ngày.

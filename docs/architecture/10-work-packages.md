@@ -74,8 +74,8 @@ Không phụ thuộc Prisma/Nest. Build bằng `tsc` ra `dist/` (CJS) để Nest
 
 ## WP4 — API core
 Đọc: 05 §1–2, 04 §4, 04 §9. Phụ thuộc WP1, WP3.
-- `config/` (zod validate env; `AUTH_MODE=demo` + production → throw).
-- `auth/`: `DemoAuthGuard`, sửa `ClerkGuard` (map `clerkOrgId`), chọn guard theo `AUTH_MODE`, `GET /me`, `GET /health`.
+- `config/` (zod validate env; `DEMO_MODE=true` + production → throw).
+- `auth/`: `DemoAuthGuard`, sửa `ClerkGuard` (map `clerkOrgId`), chọn guard theo `AUTH_MODE`, `GET /me`, `GET /health`. *(đã thay bằng phiên cookie — WP12)*
 - `crypto/token-cipher.ts` (chuyển `encrypt/decrypt` từ `tiktok.service.ts`, bỏ fallback khoá cứng trừ demo).
 - `connections/` thay `tiktok/`: authorize-url, callback (state JWT), list, patch, delete; giữ `checkShopLimit()`.
 - `webhooks/` (04 §9), bật `rawBody`.
@@ -120,3 +120,12 @@ Làm theo thứ tự ưu tiên: Tổng quan → Đơn hàng (+ chi tiết) → Q
 ## WP10 — Kiểm chứng E2E
 Playwright (Chromium có sẵn tại `/opt/pw-browsers`): mở từng trang, chờ dữ liệu, kiểm không có lỗi console, chụp ảnh `docs/screenshots/*.png`; đối chiếu số GMV 30 ngày trên Tổng quan với `/__mock/state`.
 **Xong khi:** mọi trang có ảnh chụp có số liệu; `pnpm test` và `pnpm typecheck` sạch.
+
+## WP12 — Tài khoản hai tầng, gắn kết hai nền tảng, đồng bộ cùng khung (`12-accounts-and-access.md`)
+- Schema + migration `20261122000000_accounts_access`; seed tài khoản DigiAds.
+- `access/` (hàm thuần + bảng quyền), phiên cookie, mật khẩu, đăng nhập TikTok Shop, lời mời; gỡ Clerk.
+- Kho chưa gán, gắn thay khách, BC agency, AuditLog, `AdvertiserAuthorization` + chọn token; vòng `org.round` + `SyncRound`; dữ liệu QC phía Shop.
+- Mock 3 seller + BC + trường QC phía Shop; `demo-connect` 3 kịch bản; `scripts/check-access.ts`.
+- Web: `/login`, `/invite`, `/onboarding`, `/admin/*`, Thành viên, Tài khoản, chế độ chỉ đọc, mốc đồng bộ chung, đổi tên Dashboard.
+
+**Xong khi:** `pnpm demo` từ DB trống dựng đủ 3 khách; `pnpm check:access` đạt hết; test (`access.spec`, mappers, contract mock) xanh; Playwright đăng nhập từng vai trò không lỗi console, không tràn ngang.

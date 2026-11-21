@@ -13,7 +13,9 @@
     "db:seed": "pnpm --filter @ecomdash/database db:seed",
     "demo": "bash scripts/demo.sh",
     "demo:connect": "pnpm --filter @ecomdash/api exec tsx ../../scripts/demo-connect.ts",
-    "demo:reset": "bash scripts/demo-reset.sh"
+    "demo:reset": "bash scripts/demo-reset.sh",
+    "check:access": "pnpm --filter @ecomdash/api exec tsx ../../scripts/check-access.ts",
+    "doctor": "bash scripts/doctor.sh"
   },
   "devDependencies": {
     "turbo": "^2.0.0",

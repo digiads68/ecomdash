@@ -21,7 +21,10 @@ if ! pg_isready -h "$PGH" -p "$PGP" >/dev/null 2>&1; then
   say "PostgreSQL is not running — trying to start it"
   if command -v pg_ctlcluster >/dev/null && pg_lsclusters -h 2>/dev/null | grep -q .; then
     read -r ver name _ <<<"$(pg_lsclusters -h | head -1)"; (pg_ctlcluster "$ver" "$name" start || sudo pg_ctlcluster "$ver" "$name" start) >/dev/null
-  elif command -v brew >/dev/null; then brew services start postgresql >/dev/null || true
+  elif command -v brew >/dev/null; then
+    pg_formula=$(brew list --formula 2>/dev/null | grep -E '^postgresql(@[0-9]+)?$' | sort -V | tail -1)
+    [ -n "$pg_formula" ] || fail "Install PostgreSQL: brew install postgresql@16"
+    brew services start "$pg_formula" >/dev/null || true
   elif command -v docker >/dev/null && docker info >/dev/null 2>&1; then docker compose up -d postgres redis
   else fail "Start PostgreSQL ≥14 on $PGH:$PGP (or run: docker compose up -d postgres redis)"; fi
   for _ in $(seq 1 20); do pg_isready -h "$PGH" -p "$PGP" >/dev/null 2>&1 && break; sleep 1; done
@@ -39,9 +42,13 @@ fi
 
 # ── Redis ──
 if ! redis-cli -u "$REDIS_URL" ping >/dev/null 2>&1; then
-  command -v redis-server >/dev/null || fail "Start Redis ≥6 at $REDIS_URL (or run: docker compose up -d redis)"
-  say "Starting redis-server"
-  redis-server --daemonize yes --dir "$ROOT/.local" >/dev/null
+  if command -v brew >/dev/null && brew list --formula 2>/dev/null | grep -qx redis; then
+    say "Starting Redis (brew services)"; brew services start redis >/dev/null || true
+  else
+    command -v redis-server >/dev/null || fail "Start Redis ≥6 at $REDIS_URL (or run: docker compose up -d redis)"
+    say "Starting redis-server"
+    redis-server --daemonize yes --dir "$ROOT/.local" >/dev/null
+  fi
   sleep 1
 fi
 

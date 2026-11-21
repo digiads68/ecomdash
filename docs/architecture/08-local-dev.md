@@ -11,8 +11,7 @@ Hai cách, cùng kết quả: dashboard tại http://localhost:3000 với dữ l
 ```dotenv
 # Chế độ
 NODE_ENV=development
-AUTH_MODE=demo                       # demo | clerk
-NEXT_PUBLIC_AUTH_MODE=demo
+DEMO_MODE=true                       # khoá dự phòng + tài khoản demo trên /login; production phải để false
 NEXT_PUBLIC_DEMO_MODE=true
 
 # Hạ tầng
@@ -55,10 +54,15 @@ ENCRYPTION_KEY=ZGVtby1rZXktMzItYnl0ZXMtZm9yLWVjb21kYXNoISE=
 STATE_JWT_SECRET=demo-state-secret
 PII_SALT=demo-pii-salt
 
-# Clerk / Stripe / SendGrid / Telegram — để trống ở demo
-CLERK_SECRET_KEY=
-NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=
-CLERK_WEBHOOK_SECRET=
+# Tài khoản DigiAds đầu tiên (seed). Production: bắt buộc SEED_ADMIN_PASSWORD
+SEED_ADMIN_EMAIL=admin@digiads.vn
+SEED_ADMIN_PASSWORD=
+SESSION_DAYS=30
+
+# Mock: cho Ads API trễ N phút để thử cảnh báo "Quảng cáo trễ"
+# MOCK_ADS_DELAY_MIN=45
+
+# Stripe / SendGrid / Telegram — để trống ở demo (email chỉ ghi log)
 STRIPE_SECRET_KEY=
 STRIPE_WEBHOOK_SECRET=
 SENDGRID_API_KEY=
@@ -75,10 +79,22 @@ pnpm demo
 `scripts/demo.sh` làm lần lượt:
 1. Kiểm Postgres ở `DATABASE_URL` (`pg_isready`). Không chạy → thử `pg_ctlcluster <ver> main start` hoặc `pg_ctl` trong thư mục dữ liệu riêng `.local/pg`; tạo role/database `ecomdash` nếu thiếu.
 2. Kiểm Redis (`redis-cli ping`); không chạy → `redis-server --daemonize yes --dir .local/redis`.
-3. `pnpm --filter @ecomdash/database db:migrate` rồi `db:seed` (tạo tổ chức demo slug `demo`, user demo, gói PRO, rule cảnh báo mẫu, ReportConfig mẫu).
+3. `pnpm --filter @ecomdash/database db:migrate` rồi `db:seed` (tạo `admin@digiads.vn` Super admin và `mod@digiads.vn` Mod, mật khẩu `demo12345`).
 4. Chạy song song (`concurrently`): mock (4010), api (4000), web (3000).
-5. Chờ api sẵn sàng (`/api/health`), gọi `pnpm demo:connect` — script dùng `/__mock/auto-authorize` + callback của api để tạo kết nối Shop và Ads như người dùng bấm thật, rồi chờ backfill xong (poll `/api/sync/status`).
-6. In: "Mở http://localhost:3000".
+5. Chờ api sẵn sàng (`/api/health`), gọi `pnpm demo:connect` — dựng 3 khách qua đúng các endpoint thật (`12` §8): Hoa Sen tự đăng nhập TikTok + gắn Ads + mời nhân viên;
+   Thời Trang Mây uỷ quyền từ App Store rồi được admin gắn thay (shop + tài khoản QC qua BC DigiAds); Đồ Chơi Bin chỉ gắn Shop. Giao 2 shop cho Mod. Chờ backfill, nhập giá vốn mẫu.
+6. In danh sách tài khoản và "Mở http://localhost:3000".
+
+### Tài khoản demo (mật khẩu chung `demo12345`)
+| Email | Vai trò | Thấy |
+|---|---|---|
+| `admin@digiads.vn` | Super admin DigiAds | 3 khách, 4 shop, trang Quản trị |
+| `mod@digiads.vn` | Mod DigiAds | Hoa Sen Beauty + Thời Trang Mây, chỉ xem |
+| `owner@hoasen.vn` | Chủ Hoa Sen | 2 shop Hoa Sen, sửa được |
+| `nhanvien@hoasen.vn` | Thành viên Hoa Sen | 1 shop, chỉ xem |
+| "Đăng nhập bằng TikTok Shop" → chọn Đồ Chơi Bin | Chủ Đồ Chơi Bin | thẻ "Hoàn tất kết nối" → onboarding |
+
+Kiểm tra ma trận quyền sau khi demo chạy: `pnpm check:access`.
 
 Dừng: Ctrl+C. Xoá sạch dữ liệu: `pnpm demo:reset` (`prisma migrate reset` + seed + flush Redis; Prisma sẽ từ chối nếu lệnh do một AI agent chạy mà chưa có xác nhận của người dùng).
 
@@ -103,10 +119,41 @@ docker compose --profile demo up --build
 | `pnpm test` | Jest mọi package (tiktok-client, api, mock) |
 | `pnpm typecheck` | `tsc --noEmit` mọi package |
 | `curl -X POST localhost:4010/__mock/tick` | sinh ngay một lô đơn mới |
-| `curl localhost:4000/api/sync/status` | tình trạng đồng bộ (demo không cần token) |
+| `pnpm check:access` | kiểm ma trận quyền + gắn thay khách + mốc đồng bộ chung qua API thật |
+| `pnpm doctor` | kiểm Node/pnpm, Postgres, Redis, cổng 3000/4000/4010 |
 
 ## 6. Prisma trong môi trường mạng hạn chế
 `prisma generate` cần tải query engine từ `binaries.prisma.sh`. Nếu bị chặn:
 1. Dùng Prisma ≥ 6.16 với `previewFeatures = ["driverAdapters", "queryCompiler"]` + `@prisma/adapter-pg` (không cần engine nhị phân) — cấu hình sẵn trong `packages/database`.
 2. Nếu CLI vẫn cần engine schema để chạy migrate: áp file `migration.sql` trực tiếp bằng `psql "$DATABASE_URL" -f ...` (`scripts/db-apply.sh`).
 3. Hoặc mở host `binaries.prisma.sh` trong cấu hình mạng của môi trường.
+
+## 7. Chạy trên máy của bạn (macOS / Windows / Linux)
+
+Môi trường cloud của Claude Code và máy cá nhân dùng cùng một repo, cùng lệnh `pnpm demo`.
+
+1. **Node 20 + pnpm 9**
+   - Node: `nvm install` (đọc `.nvmrc`) hoặc tải bản LTS 20 từ nodejs.org.
+   - pnpm: `corepack enable` (đi kèm Node) — `package.json` khai báo `packageManager: pnpm@9`.
+2. **PostgreSQL 16 + Redis 7** — chọn một:
+   - macOS (Homebrew): `brew install postgresql@16 redis && brew services start postgresql@16 && brew services start redis`.
+     `pnpm demo` tự gọi `brew services start` nếu thấy chưa chạy.
+   - Windows: dùng **WSL2** (Ubuntu) rồi làm như Linux: `sudo apt install postgresql redis-server && sudo service postgresql start && sudo service redis-server start`.
+   - Bất kỳ hệ nào có **Docker Desktop**: `docker compose up -d postgres redis` (chỉ hạ tầng) hoặc cả hệ thống: `docker compose --profile demo up --build`.
+3. **Lấy code và chạy**
+   ```bash
+   git clone <repo> ecomdash && cd ecomdash
+   git checkout claude/plan-implementation-strategy-1NoK9   # nhánh đang phát triển
+   pnpm install
+   pnpm doctor        # kiểm tra trước: phiên bản, DB, Redis, cổng
+   pnpm demo          # migrate, seed, build, chạy mock + api + web, dựng 3 khách demo
+   ```
+   Mở http://localhost:3000 và đăng nhập bằng tài khoản ở §3.
+4. **Phát triển** (tự build lại khi sửa code): sau khi `pnpm demo` đã chạy một lần, dừng nó và dùng `pnpm dev` (mock + api + web ở chế độ watch).
+   Sửa `packages/*` thì chạy `pnpm build:packages`.
+5. **Dùng Claude Code trên máy**: cài Claude Code (CLI, desktop app hoặc extension VS Code/JetBrains), mở thư mục `ecomdash` — file `CLAUDE.md` và `docs/architecture/` là ngữ cảnh cho agent.
+   Có thể tiếp tục phiên cloud trên máy qua **Remote Control** của desktop app (Settings → Claude Code → Remote Control) hoặc `claude --teleport`.
+6. **Lỗi thường gặp**
+   - `Port 3000 is already in use` → `lsof -i :3000` rồi tắt tiến trình cũ.
+   - `Cannot connect with DATABASE_URL` → Postgres chưa chạy hoặc chưa có role `ecomdash` (script tự tạo nếu bạn là superuser Postgres; trên macOS Homebrew user hiện tại là superuser).
+   - Đăng nhập xong bị đẩy về `/login` → web và API phải cùng host (`localhost`, không trộn `127.0.0.1`), vì cookie phiên theo host.

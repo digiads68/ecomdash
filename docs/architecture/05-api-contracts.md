@@ -11,12 +11,22 @@
 
 ## 1. Xác thực
 
-| AUTH_MODE | Hành vi |
-|---|---|
-| `demo` | `DemoAuthGuard` gắn `req.orgId = <Organization slug 'demo'>.id`, `req.userId` = user demo. Không cần header. **API từ chối khởi động với `AUTH_MODE=demo` khi `NODE_ENV=production`.** |
-| `clerk` | `ClerkGuard`: xác minh JWT RS256 qua JWKS (`CLERK_JWKS_URL` hoặc dựng từ `CLERK_SECRET_KEY`), lấy `org_id` → tìm `Organization.clerkOrgId` → `req.orgId`. Không có org → 403. |
+Phiên cookie `ecomdash_session` (hoặc `Authorization: Bearer`) do API cấp; `AuthGuard` gắn `req.user`, `req.access` (quyền, `12-accounts-and-access.md` §2, §6). Route không có phiên → 401.
 
-`GET /api/me` → `{ user: {id, name, email}, organization: {id, name, plan}, authMode: 'demo'|'clerk' }`.
+`GET /api/me` → `MeDto { user: {id, name, email, hasPassword, tiktokLinked}, platformRole, organizations: [{id, name, role, canEdit, status: OrgLinkStatus}], demo }`.
+
+| Route | Mô tả |
+|---|---|
+| `POST /auth/login` `{email, password}` | đặt cookie, trả `MeDto`; sai 5 lần / 15' → 401 khoá tạm |
+| `POST /auth/logout`, `POST /auth/sessions/revoke-others` | |
+| `GET /auth/tiktok/start` | redirect trang uỷ quyền TikTok Shop (`state intent=login`) |
+| `POST /auth/password` `{email?, currentPassword?, newPassword}` | đặt/đổi email + mật khẩu |
+| `GET /auth/invitations/:token`, `POST /auth/invitations/accept` `{token, name?, password}` | lời mời |
+| `GET /auth/demo-accounts` | chỉ khi `DEMO_MODE=true` |
+
+Tham số phạm vi: route theo shop nhận `shopId` (ngoài phạm vi → 404, chỉ xem mà sửa → 403); route theo tổ chức (kết nối, cảnh báo, báo cáo, đồng bộ, billing) nhận `orgId` (query), bỏ trống = tổ chức duy nhất của người dùng.
+
+`GET /shops` → shop xem được: `ShopDto { …, organizationId, organizationName, canEdit }`.
 
 ## 2. Kết nối
 
@@ -47,7 +57,7 @@ interface ConnectionsDto {
 
 `GET /shops` → `{ id, name, code, region, currency, timezone }[]` (shop đang active của tổ chức — dùng cho shop switcher).
 
-Trang chủ dùng `GET /pnl/summary` + `GET /pnl/daily` (`11-profit-and-loss.md` §11). `/overview` dưới đây chỉ còn cho khối vận hành (phễu trạng thái, top sản phẩm).
+Trang chủ dùng `GET /pnl/summary` + `GET /pnl/daily` (`11-dashboard-metrics.md` §11). `/overview` dưới đây chỉ còn cho khối vận hành (phễu trạng thái, top sản phẩm).
 
 `GET /overview?shopId&from&to`
 ```ts
@@ -144,5 +154,12 @@ Giữ route v1 (đổi tên metric theo 04 §7):
 - `GET|POST /reports/configs`, `PUT|DELETE /reports/configs/:id`
 - `GET /export?type=orders|products|campaigns|settlements&shopId&from&to&format=csv|xlsx`
 
-## 11. Team, billing
-Giữ nguyên v1 (`/team`, `/billing/*`). Ở `AUTH_MODE=demo`: `/billing/*` trả 501 "Không khả dụng ở chế độ demo"; `/team/invite` chỉ log.
+## 11. Thành viên, quản trị DigiAds, billing
+- Thành viên (OWNER/ADMIN tổ chức hoặc quản trị DigiAds): `GET /orgs/:orgId/members` → `MembersDto`; `POST /orgs/:orgId/members/invitations` `{email, role: ADMIN|MEMBER, shopIds}`;
+  `DELETE /orgs/:orgId/members/invitations/:id`; `PATCH /orgs/:orgId/members/:userId` `{role?, shopIds?}`; `DELETE /orgs/:orgId/members/:userId`.
+- Quản trị (SUPER_ADMIN/ADMIN, Mod → 403): `GET|POST /admin/orgs`, `GET /admin/orgs/:id` → `AdminOrgDetailDto` (kèm AuditLog), `GET /admin/orgs/:id/connect-links`,
+  `GET /admin/pool` → `PoolDto`, `POST /admin/orgs/:id/assign-seller {sellerAuthorizationId}`, `POST /admin/orgs/:id/assign-advertiser {advertiserId}`,
+  `POST /admin/unassign {type: SELLER|ADVERTISER, id}`, `GET /admin/agency`, `POST /admin/agency/authorize-url`, `GET|POST /admin/staff`, `PATCH /admin/staff/:id {platformRole?, status?, shopIds?}`.
+- Kết nối bổ sung: `POST /connections/orgs/:orgId/ads-mode {mode: TIKTOK|NONE}`, `POST /connections/orgs/:orgId/onboarded`; `GET /sync/watermark?orgId` → `SyncWatermarkDto`;
+  `POST /sync/run {scopeType: ORG|SHOP|ADVERTISER, scopeId, resource?}`.
+- Billing: `/billing/*?orgId` (sửa: quyền sửa tổ chức).

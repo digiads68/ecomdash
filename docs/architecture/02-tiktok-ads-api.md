@@ -102,3 +102,12 @@ Rate limit mặc định client: 10 req/s/app (`TIKTOK_ADS_RPS`).
 
 ## 7. Webhook
 Marketing API không có webhook chi tiêu/báo cáo → chỉ polling.
+
+## 8. Business Center DigiAds (agency) — bổ sung `12-accounts-and-access.md` §3.2
+
+- DigiAds kết nối OAuth TikTok for Business bằng tài khoản quản trị **BC của DigiAds** (`/admin/agency`) → `AdsAuthorization.kind = AGENCY_BC`.
+- Token này thấy tài khoản quảng cáo khách **chia sẻ vào BC DigiAds** (BC tổng) và tài khoản nằm trong **BC con** của DigiAds: `/oauth2/advertiser/get/`; chi tiết tài sản `/bc/get/`, `/bc/asset/get/` (`asset_type=ADVERTISER`).
+  **[CHƯA XÁC MINH]** token BC trả đủ tài khoản được chia sẻ (không chỉ tài khoản BC sở hữu).
+- Một advertiser có thể có nhiều nguồn token (`AdvertiserAuthorization`); đồng bộ ưu tiên token CLIENT, rơi về AGENCY_BC.
+- Không có endpoint nào nối shop ↔ tài khoản QC ngoài `/gmv_max/store/list/` (store_id / store_code) — khớp tự động, còn lại chọn tay.
+- **[CHƯA XÁC MINH]** `stat_time_day` theo múi giờ tài khoản QC; GMV Max có hỗ trợ `stat_time_hour` để cắt "hôm nay" chính xác hơn.

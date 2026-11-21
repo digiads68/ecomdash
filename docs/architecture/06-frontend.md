@@ -10,7 +10,7 @@ Giao diện giả định để duyệt: `docs/mockups/index.html` (mở trực 
 | `app/page.tsx` và `app/(dashboard)/page.tsx` cùng `/` | Xoá `app/page.tsx` (server component gọi Prisma — web không truy cập DB); `(dashboard)/page.tsx` redirect `/overview` |
 | `/api/api` lặp | `NEXT_PUBLIC_API_URL` không chứa `/api`; `api-client.ts` ghép `${base}/api${path}` |
 | `selectedShopId` không bao giờ được set | `ShopSwitcher` trong Topbar gọi `GET /shops`, nếu store rỗng/không còn hợp lệ thì chọn shop đầu tiên |
-| Clerk bắt buộc | `lib/auth.ts` đọc `NEXT_PUBLIC_AUTH_MODE`; `demo` → không render `ClerkProvider`, `middleware.ts` cho qua mọi route, `useApiClient` không gửi Bearer; Topbar hiển thị "Tài khoản demo" thay cho `UserButton`/`OrganizationSwitcher` |
+| Clerk bắt buộc (đã gỡ) | Đăng nhập do API cấp phiên cookie; `lib/api.ts` gửi `credentials: "include"`, 401 → `/login`; `middleware.ts` chặn khi không có cookie `ecomdash_session` (`12` §6) |
 | Ngày gửi API dạng ISO datetime | Gửi `YYYY-MM-DD` theo `Asia/Ho_Chi_Minh` (helper `toBusinessDate()` trong `lib/format.ts`) |
 
 ## 2. Điều hướng
@@ -18,32 +18,42 @@ Giao diện giả định để duyệt: `docs/mockups/index.html` (mở trực 
 Sidebar (`bg-gray-900`, mục đang chọn `bg-primary-600`), nhóm:
 
 ```
-ĐIỀU HÀNH
-  Lãi lỗ               /overview         (trang chủ — 11 §12)
-  Lãi lỗ sản phẩm      /profit/products
+TỔNG QUAN
+  Dashboard            /dashboard        (trang chủ — 11 §12; /overview chuyển hướng)
+  Hiệu quả sản phẩm    /products/performance   (/profit/products chuyển hướng)
 BÁN HÀNG
   Đơn hàng             /orders           (+ /orders/[id])
-  Sản phẩm             /products         (+ /products/[id])
+  Sản phẩm             /products
   Hoàn / Huỷ           /returns
   Khách hàng           /customers
-TÀI CHÍNH
-  Tài chính            /finance
-QUẢNG CÁO
-  Quảng cáo            /ads              (tab: Tổng quan · Chiến dịch thủ công · GMV Max)
+TIỀN
+  Đối soát             /finance
+  Quảng cáo            /ads
 VẬN HÀNH
   Cảnh báo             /alerts
   Báo cáo định kỳ      /reports
-  Cài đặt              /settings         (tab: Kết nối · Chi phí · Nhóm · Gói dịch vụ; Chi phí = /settings/costs, 11 §12)
+CÀI ĐẶT
+  Chi phí              /settings/costs
+  Kết nối              /settings/connections
+  Thành viên           /settings/members      (chỉ Chủ / Quản trị tổ chức, quản trị DigiAds)
+  Tài khoản            /settings/account
+QUẢN TRỊ DIGIADS       (chỉ Super admin / Admin)
+  Khách hàng           /admin/clients  (+ /admin/clients/[id]: gắn kết thay khách, link mời, thành viên, nhật ký)
+  Uỷ quyền chưa gán    /admin/pool
+  Nhân viên            /admin/staff
+  Business Center      /admin/agency
+Ngoài khung: /login · /invite/[token] · /onboarding
 ```
-Bỏ `/shop` và `/analytics` của v1 (nội dung gộp vào Tổng quan và Quảng cáo).
+Ngôn từ: phần mềm là **Dashboard**, không gọi "lãi lỗ"; tên chỉ số ("Lãi ròng", "ROAS thực"…) giữ nguyên.
 
-Topbar: ShopSwitcher · DateRangePicker (Hôm nay, Hôm qua, 7 ngày, 30 ngày, Tháng này, Tháng trước, Tuỳ chọn) · "Cập nhật lúc HH:mm" (từ `syncedAt`) · chuông cảnh báo · tài khoản.
+Topbar: ô chọn shop (nhóm theo khách cho nhân viên DigiAds; chọn shop = chọn tổ chức cho các trang theo tổ chức) · khoảng thời gian · **mốc đồng bộ chung** "Số liệu đến HH:mm (shop + QC)" hoặc nhãn vàng "Quảng cáo trễ N phút" (`GET /sync/watermark`) · chuông cảnh báo · menu tài khoản (vai trò, Tài khoản & mật khẩu, Đăng xuất).
+Chế độ chỉ đọc (Mod, Thành viên): trang Chi phí, Kết nối, Cảnh báo, Báo cáo ẩn/khoá nút sửa và hiện "Chế độ chỉ xem". Tổ chức chưa gắn đủ Shop + Ads → thẻ "Hoàn tất kết nối" thay cho trang dữ liệu (`12` §3.1).
 DemoBanner vàng khi `NEXT_PUBLIC_DEMO_MODE=true`: "Chế độ demo — dữ liệu giả lập từ mock TikTok API".
 
 ## 3. Màn hình
 
-### 3.1 Điều hành lãi lỗ (trang chủ)
-Xem `11-profit-and-loss.md` §12 — thay toàn bộ mô tả "Tổng quan" cũ bên dưới.
+### 3.1 Dashboard (trang chủ)
+Xem `11-dashboard-metrics.md` §12 — thay toàn bộ mô tả "Tổng quan" cũ bên dưới.
 
 ### 3.1-cũ Tổng quan (đã thay)
 - Hàng KPI (8 thẻ, 4 cột desktop / 2 cột mobile): GMV, Đơn hàng, AOV, Chi quảng cáo, ROAS tổng, Thực nhận, Lợi nhuận ước tính, Tỉ lệ huỷ. Mỗi thẻ: giá trị, % thay đổi so với kỳ trước (xanh/đỏ; với chi phí & tỉ lệ huỷ thì tăng là đỏ), sparkline 14 ngày.
@@ -82,12 +92,11 @@ KPI người mua, khách mới, tỉ lệ quay lại; phân khúc (donut); top t
 ### 3.8 Cảnh báo, Báo cáo
 Giữ chức năng v1, cập nhật danh sách metric (04 §7). Form tạo rule: metric, toán tử, ngưỡng, cửa sổ, kênh gửi.
 
-### 3.9 Cài đặt → Kết nối (mới, quan trọng)
-- Thẻ "TikTok Shop": mỗi seller authorization — tên seller, trạng thái (badge), hạn access token, hạn uỷ quyền; danh sách shop (tên, mã, bật/tắt đồng bộ, lần đồng bộ đơn cuối).
-- Thẻ "TikTok Ads": advertiser — tiền tệ, múi giờ, store link (store → shop, nút "Chọn shop" khi chưa khớp).
-- Bảng "Tình trạng đồng bộ": resource × trạng thái × lần thành công cuối × lỗi; nút "Đồng bộ ngay".
-- Nút "Kết nối TikTok Shop" / "Kết nối TikTok Ads" (demo → trang uỷ quyền giả của mock).
-- Thanh hạn mức gói: "2 / 5 shop (PRO)".
+### 3.9 Cài đặt → Kết nối
+- Hai thẻ tách bạch: **"TikTok Shop · TikTok Shop Partner API"** (mỗi uỷ quyền seller — trạng thái, nguồn: khách tự gắn / App Store / link DigiAds, hạn token, shop + bật/tắt đồng bộ)
+  và **"TikTok Ads · TikTok for Business"** (advertiser — tiền tệ, múi giờ + cảnh báo khác múi giờ shop, nguồn token: khách / BC DigiAds, store → shop).
+- Dòng mốc đồng bộ chung, bảng "Tình trạng đồng bộ" (nút "Đồng bộ ngay" khi có quyền sửa), thanh hạn mức gói.
+- Onboarding, thành viên, tài khoản, quản trị: `12-accounts-and-access.md` §3, §7.
 
 ## 4. Quy ước
 - Data fetching: TanStack Query, mỗi endpoint một hook trong `lib/hooks/` (`useOverview`, `useOrders`, …), `queryKey = [endpoint, shopId, from, to, ...filters]`.

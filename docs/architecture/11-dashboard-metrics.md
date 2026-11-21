@@ -1,6 +1,7 @@
-# 11 — Điều hành lãi lỗ (P&L)
+# 11 — Chỉ số Dashboard (doanh thu thực, chi phí, lãi ròng, ROAS)
 
-> File này là **nguồn chuẩn** cho mọi con số lãi lỗ, ROAS và chi phí. Nếu `03`/`05`/`06` mâu thuẫn với file này, file này đúng.
+> Phần mềm gọi là **Dashboard** (không gọi "lãi lỗ"); tên chỉ số như "Lãi ròng", "ROAS thực" giữ nguyên.
+> File này là **nguồn chuẩn** cho mọi con số tiền, ROAS và chi phí. Nếu `03`/`05`/`06` mâu thuẫn với file này, file này đúng.
 
 ## 1. Câu hỏi dashboard phải trả lời
 
@@ -284,7 +285,7 @@ interface PnlSummaryDto {
 
 ## 12. Giao diện (thay `06-frontend.md` §3.1 và bổ sung)
 
-**Điều hành lãi lỗ** (`/overview`, trang chủ):
+**Dashboard** (`/dashboard`, trang chủ; `/overview` chuyển hướng). Trang "Hiệu quả sản phẩm" ở `/products/performance`:
 1. Thanh kỳ: Tháng này · Tháng trước · 7 ngày · 30 ngày · Tuỳ chọn; dòng phụ "Đã chốt 78% đơn của kỳ — phần còn lại là ước tính".
 2. Dải kết cục đơn: Đặt → Huỷ → Hoàn → Thành công → Đang chờ (số đơn, tiền, % trên đơn đặt).
 3. Bốn ô ROAS cạnh nhau: ROAS TikTok (ghi "tính cả đơn huỷ/hoàn") → ROAS thực ("sau huỷ/hoàn x%") → ROAS thực nhận ("sau phí sàn") · ROAS hoà vốn; badge trạng thái quảng cáo; dòng phụ ROAS toàn shop.
@@ -303,3 +304,11 @@ interface PnlSummaryDto {
 - Lưới giá vốn SKU: tìm, lọc "Chưa nhập", sửa trực tiếp ô `Giá vốn`, chọn `Áp dụng từ`; thanh "x/y SKU đã nhập · chiếm z% doanh thu"; nút Xuất Excel mẫu / Nhập Excel.
 - Danh sách chi phí tự nhập: tên, cách tính, số tiền, áp cho, hiệu lực, bật/tắt; form thêm dòng.
 - Sau khi lưu: toast "Đã lưu. Đang tính lại lãi lỗ từ 01/11…".
+
+## 13. Quảng cáo trả từ tiền shop — không tính hai lần (bổ sung)
+
+- `OrderSettlement.gmvMaxAdFee` (phí GMV Max TikTok trừ thẳng vào tiền đơn) là **chi phí quảng cáo**, đã có trong chi tiêu GMV Max lấy từ Ads API.
+  Khi tính kinh tế đơn, dùng `settlementAmount + gmvMaxAdFee` làm "số TikTok trả" để phần dư "phí khác trên sàn" **không** chứa phí QC. Tỉ lệ phí lịch sử (§5) cũng cộng lại phần này.
+- Điều chỉnh `GMV_PAYMENT_FOR_ADS` của kỳ đối soát (QC trả bằng số dư shop) lưu ở `StatementAdjustment`, không đi vào kinh tế đơn → không thành "phí khác".
+- `dataQuality` có thêm `shopGmvMaxAdFee`, `adsPaidFromBalance`, `gmvMaxFeeGap` (lệch phí GMV Max phía Shop so với chi tiêu GMV Max từ Ads API, chỉ tính trên ngày đã > 14 ngày), `gmvMaxRevenueShare`. Xem `12-accounts-and-access.md` §5.
+- Số liệu hôm nay cắt theo mốc của vòng đồng bộ chung (`12` §4); QC trễ thì Dashboard báo "ROAS và lãi ròng hôm nay sẽ còn thay đổi".

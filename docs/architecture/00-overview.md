@@ -5,7 +5,7 @@
 
 ## 1. Sản phẩm làm gì
 
-SaaS **điều hành bán hàng theo lãi lỗ** cho seller TikTok Shop tại Việt Nam. Trang chủ trả lời: trong kỳ này shop bán được bao nhiêu đơn thật (sau huỷ/hoàn), quảng cáo tốn bao nhiêu cho số đơn đó, ROAS thực so với ROAS TikTok báo, và sau giá vốn, phí sàn, chi phí tự nhập thì lãi hay lỗ (`11-profit-and-loss.md`). Hệ thống gom dữ liệu **TikTok Shop** (đơn hàng, sản phẩm, đối soát, hoàn/huỷ) và **TikTok Ads** (chiến dịch Shop Ads thủ công + GMV Max) vào một dashboard, tính ra lợi nhuận thực và hiệu quả quảng cáo, gửi cảnh báo và báo cáo định kỳ.
+**Dashboard** điều hành bán hàng cho seller TikTok Shop tại Việt Nam, do DigiAds (TikTok Shop Partner) vận hành. Trang chủ (Dashboard) trả lời: trong kỳ này shop bán được bao nhiêu đơn thật (sau huỷ/hoàn), quảng cáo tốn bao nhiêu cho số đơn đó, ROAS thực so với ROAS TikTok báo, và sau giá vốn, phí sàn, chi phí tự nhập thì lãi hay lỗ (`11-dashboard-metrics.md`). Hệ thống gom dữ liệu **TikTok Shop** (đơn hàng, sản phẩm, đối soát, hoàn/huỷ) và **TikTok Ads** (chiến dịch Shop Ads thủ công + GMV Max) vào một dashboard, tính ra lợi nhuận thực và hiệu quả quảng cáo, gửi cảnh báo và báo cáo định kỳ.
 
 ## 2. Vì sao phải làm lại
 
@@ -45,7 +45,7 @@ Ngoài ra các tầng không khớp nhau (tenant id Clerk ≠ id Prisma, URL `/a
 ┌───────────────────────┴──────────────────── apps/api (NestJS :4000) ──────────────────────────┐
 │ sync/ (BullMQ workers + scheduler)   webhooks/   connections/ (OAuth)                          │
 │ overview/ orders/ products/ finance/ ads/ returns/ customers/ alerts/ reports/ export/         │
-│ auth: DemoAuthGuard | ClerkGuard  (AUTH_MODE)                                                  │
+│ auth: phiên cookie + Access (12)  admin/ orgs/ (gắn thay khách, thành viên, AuditLog)          │
 └──────────┬──────────────────────────────────────────────────────────────▲─────────────────────┘
            │ Prisma                                       Redis (BullMQ)   │ REST JSON
      ┌─────▼──────┐                                       ┌───────────┐    │
@@ -68,7 +68,7 @@ apps/
   mock-tiktok/      Fastify server giả lập TikTok (chỉ dev/demo/test)
 packages/
   tiktok-client/    Client Shop + Ads, ký request, kiểu wire, lỗi
-  database/         Prisma schema, migration, seed tổ chức demo
+  database/         Prisma schema, migration, seed tài khoản DigiAds (Super admin, Mod)
   shared/           DTO + enum dùng chung api ↔ web
 docs/
   architecture/     Bộ tài liệu này
@@ -100,11 +100,11 @@ Bị xoá: `apps/workers/`, `infra/docker/clickhouse/`, `apps/api/src/metrics/cl
 
 ## 7. Nguyên tắc bắt buộc
 
-- Mọi truy vấn dữ liệu nghiệp vụ lọc theo `organizationId` (multi-tenant).
+- Mọi truy vấn dữ liệu nghiệp vụ lọc theo phạm vi người dùng: shop qua `getShopForUser`, tổ chức qua `resolveOrgId` (`12-accounts-and-access.md` §2). Hai tầng tài khoản: nền tảng DigiAds + tổ chức khách.
 - Tiền: TikTok trả **chuỗi**. Lưu `Decimal(18,2)` trong Postgres; VND không có phần lẻ nhưng giữ 2 chữ số để dùng chung cho tiền tệ khác. Không dùng `float` để cộng tiền.
 - Thời gian: lưu UTC (`timestamptz`); quy đổi sang ngày kinh doanh theo `Shop.timezone` khi rollup.
 - PII người mua: không lưu tên/điện thoại/địa chỉ đầy đủ. Lưu `buyerHash = sha256(user_id + PII_SALT)`, tỉnh/thành (`district_info` cấp 1) để phân tích địa lý.
-- Token TikTok: mã hoá AES-256-GCM (định dạng hiện có `base64(nonce12 ‖ ciphertext ‖ tag16)`), khoá `ENCRYPTION_KEY`. Không fallback khoá cứng ngoài `AUTH_MODE=demo`.
+- Token TikTok: mã hoá AES-256-GCM (định dạng hiện có `base64(nonce12 ‖ ciphertext ‖ tag16)`), khoá `ENCRYPTION_KEY`. Không fallback khoá cứng ngoài `DEMO_MODE=true`.
 - Sync idempotent: upsert theo id TikTok; chạy lại không nhân đôi số liệu.
 - Mọi mục đánh dấu **[CHƯA XÁC MINH]** trong `01`/`02` phải kiểm lại với API thật trước go-live (`09-go-live-checklist.md`).
 
@@ -122,4 +122,5 @@ Bị xoá: `apps/workers/`, `infra/docker/clickhouse/`, `apps/api/src/metrics/cl
 | `08-local-dev.md` | Chạy local: không Docker và có Docker |
 | `09-go-live-checklist.md` | Đăng ký app, scope, mục cần xác minh |
 | `10-work-packages.md` | Gói việc cho agent, phụ thuộc, tiêu chí hoàn thành |
-| `11-profit-and-loss.md` | **Điều hành lãi lỗ**: kết cục đơn, thác lãi lỗ, ROAS TikTok vs thực, giá vốn SKU, chi phí tự nhập — nguồn chuẩn cho mọi con số tiền |
+| `11-dashboard-metrics.md` | **Chỉ số Dashboard**: kết cục đơn, thác doanh thu → lãi ròng, ROAS TikTok vs thực, giá vốn SKU, chi phí tự nhập — nguồn chuẩn cho mọi con số tiền |
+| `12-accounts-and-access.md` | **Tài khoản & phân quyền**: DigiAds (Super admin/Admin/Mod) + khách (Chủ/Quản trị/Thành viên), luồng khách gắn TikTok Shop + TikTok Ads, DigiAds gắn thay khách, vòng đồng bộ chung |

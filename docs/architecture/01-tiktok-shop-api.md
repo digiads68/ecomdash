@@ -210,3 +210,12 @@ Phải trả 200 trong **3 giây**; TikTok retry sau +2', +30', +3h, +12h rồi 
 | 11 | Đổi trạng thái huỷ | job `returns.sync` cho shop |
 | 12 | Đổi trạng thái hoàn | job `returns.sync` cho shop |
 | khác | | lưu `WebhookEvent`, bỏ qua |
+
+## 12. Uỷ quyền nhiều seller, dữ liệu QC phía Shop (bổ sung — `12-accounts-and-access.md`)
+
+- Mỗi seller một token; `open_id` dùng làm khoá tài khoản khách (đăng nhập lại cùng `open_id` không tạo trùng). **[CHƯA XÁC MINH]** `open_id` giữ nguyên qua các lần uỷ quyền lại.
+- Uỷ quyền từ Seller Center App Store: callback chỉ có `code`, **không có `state`** → vào kho chưa gán.
+- Token seller A gọi `shop_cipher` của seller B → lỗi `101000` (mock tái hiện).
+- Finance 202501: `gmv_max_ad_fee_amount` có thể ở cấp giao dịch đơn hoặc trong `sku_transactions[].fee_tax_breakdown.fee` — hệ thống lấy cấp giao dịch nếu có, không cộng cả hai. **[CHƯA XÁC MINH với shop VN]**
+- Statement transactions có thể chứa dòng điều chỉnh `type=ADJUSTMENT`, `adjustment_type=GMV_PAYMENT_FOR_ADS` (QC trả từ số dư). **[CHƯA XÁC MINH hình dạng]**
+- `/analytics/202509/shop/performance` trả `gmv_breakdowns` (`GMV_MAX` / `NON_GMV_MAX`) — client đã chuyển từ 202405 sang 202509.
