@@ -17,7 +17,7 @@ export default function ProductsPage() {
   const [sk] = sort.split(":");
   return (
     <>
-      <PageHeader title="Sản phẩm" subtitle="Doanh số từ đơn hàng · lượt xem từ Analytics API · lãi lỗ theo sản phẩm ở trang Lãi lỗ sản phẩm" />
+      <PageHeader title="Sản phẩm" subtitle="Doanh số từ đơn hàng · lượt xem từ Analytics API · lãi ròng theo sản phẩm ở trang Hiệu quả sản phẩm" />
       <div className="flex flex-wrap gap-2">
         <input id="product-q" className="w-72 max-w-full rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm" placeholder="Tìm tên sản phẩm" value={q} onChange={(e) => setQ(e.target.value)} />
         <select id="product-status" className="rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-sm" value={status} onChange={(e) => setStatus(e.target.value)}>

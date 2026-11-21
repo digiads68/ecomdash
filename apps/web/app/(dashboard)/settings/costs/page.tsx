@@ -3,8 +3,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CostItemDto, CostSkuListDto, ShopConfigDto } from "@ecomdash/shared";
 import { toBusinessDate } from "@ecomdash/shared";
-import { Badge, Button, ErrorBox, LinkTabs, Loading, PageHeader, Panel, ProductCell, TableWrap, Td, Th, Toggle } from "@/components/ui";
-import { API_URL, useApi, useApiFetch } from "@/lib/api";
+import { Badge, Button, ErrorBox, LinkTabs, Loading, Notice, PageHeader, Panel, ProductCell, TableWrap, Td, Th, Toggle } from "@/components/ui";
+import { API_URL, useApi, useApiFetch, useCanEdit } from "@/lib/api";
 import { useAppStore } from "@/lib/store";
 import { formatFullDate, formatNumber, formatPct, formatVND, formatVNDCompact } from "@/lib/format";
 import { useQueryClient } from "@tanstack/react-query";
@@ -16,6 +16,7 @@ const parseMoney = (s: string) => Number(s.replace(/[.\s₫]/g, "").replace(",",
 export default function CostsPage() {
   const shopId = useAppStore((s) => s.shopId);
   const f = useApiFetch();
+  const edit = useCanEdit();
   const qc = useQueryClient();
   const [missing, setMissing] = useState(false);
   const [search, setSearch] = useState("");
@@ -38,7 +39,7 @@ export default function CostsPage() {
       if (list.some((x) => !(x.unitCost >= 0))) return say("red", "Giá vốn phải là số không âm");
       const r = await f<{ saved: number; recomputeFrom: string }>("/costs/skus", { method: "PUT", body: JSON.stringify({ shopId, items: list }) });
       setEdits({});
-      say("green", `Đã lưu ${r.saved} giá vốn. Đang tính lại lãi lỗ từ ${formatFullDate(r.recomputeFrom)}…`);
+      say("green", `Đã lưu ${r.saved} giá vốn. Đang tính lại số liệu Dashboard từ ${formatFullDate(r.recomputeFrom)}…`);
       refresh();
       setTimeout(refresh, 4000);
     } catch (e) { say("red", (e as Error).message); }
@@ -56,7 +57,7 @@ export default function CostsPage() {
 
   async function setConfig(patch: Partial<ShopConfigDto>) {
     await f(`/shops/${shopId}/config`, { method: "PUT", body: JSON.stringify(patch) });
-    say("green", "Đã lưu cấu hình. Đang tính lại lãi lỗ…");
+    say("green", "Đã lưu cấu hình. Đang tính lại số liệu Dashboard…");
     refresh();
   }
 
@@ -67,7 +68,7 @@ export default function CostsPage() {
 
   async function removeItem(i: CostItemDto) {
     await f(`/costs/items/${i.id}`, { method: "DELETE" });
-    say("green", `Đã xoá "${i.name}". Đang tính lại lãi lỗ…`);
+    say("green", `Đã xoá "${i.name}". Đang tính lại số liệu Dashboard…`);
     refresh();
   }
 
@@ -78,7 +79,7 @@ export default function CostsPage() {
     try {
       await f("/costs/items", { method: "POST", body: JSON.stringify({ shopId, name: v("name"), method: v("method"), amount: parseMoney(v("amount")), appliesTo: v("appliesTo"), effectiveFrom: v("from") }) });
       fm.reset();
-      say("green", `Đã thêm chi phí. Đang tính lại lãi lỗ từ ${formatFullDate(v("from"))}…`);
+      say("green", `Đã thêm chi phí. Đang tính lại số liệu Dashboard từ ${formatFullDate(v("from"))}…`);
       refresh();
     } catch (err) { say("red", (err as Error).message); }
   }
@@ -86,10 +87,12 @@ export default function CostsPage() {
   const d = skus.data;
   return (
     <>
-      <PageHeader title="Cài đặt · Chi phí" subtitle="Giá vốn và chi phí tự nhập dùng để tính lãi lỗ. Sửa xong hệ thống tự tính lại từ ngày áp dụng." />
+      <PageHeader title="Cài đặt · Chi phí" subtitle="Giá vốn và chi phí tự nhập dùng để tính lãi ròng trên Dashboard. Sửa xong hệ thống tự tính lại từ ngày áp dụng." />
       <LinkTabs active="/settings/costs" items={[{ href: "/settings/connections", label: "Kết nối" }, { href: "/settings/costs", label: "Chi phí" }]} />
       {toast && <div role="status" className={toast.tone === "green" ? "rounded-lg bg-green-50 px-3 py-2 text-sm font-medium text-green-700" : "rounded-lg bg-red-50 px-3 py-2 text-sm font-medium text-red-700"}>{toast.text}</div>}
+      {!edit && <Notice tone="blue" title="Chế độ chỉ xem">Bạn được xem shop này nhưng không được sửa giá vốn và chi phí.</Notice>}
 
+      <fieldset disabled={!edit} className="contents">
       <Panel title="Mặc định của shop">
         {config.data ? (
           <div className="flex flex-wrap items-center gap-4 text-sm">
@@ -196,6 +199,7 @@ export default function CostsPage() {
         </form>
         <p className="mt-2 text-xs text-gray-500">"Áp cho" chỉ dùng với chi phí cố định mỗi đơn. Chi phí theo tháng được chia đều cho từng ngày trong tháng.</p>
       </Panel>
+      </fieldset>
     </>
   );
 }

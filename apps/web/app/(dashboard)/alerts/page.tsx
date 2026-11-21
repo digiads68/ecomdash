@@ -2,7 +2,7 @@
 
 import type { AlertInstanceDto, AlertMetric, AlertRuleDto } from "@ecomdash/shared";
 import { Badge, Button, ErrorBox, Loading, PageHeader, Panel, TableWrap, Td, Th, Toggle } from "@/components/ui";
-import { useApi, useApiFetch } from "@/lib/api";
+import { useApi, useApiFetch, useCanEdit, useCurrentOrgId, useShops } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -16,9 +16,12 @@ const fmtTh = (m: string, v: number) => (m === "real_roas_below_breakeven" ? "" 
 
 export default function AlertsPage() {
   const f = useApiFetch();
+  const orgId = useCurrentOrgId();
+  const edit = useCanEdit();
+  const q = `?orgId=${orgId}`;
   const qc = useQueryClient();
-  const rules = useApi<AlertRuleDto[]>("/alerts/rules", {}, { shop: false });
-  const inst = useApi<(AlertInstanceDto & { detail?: string })[]>("/alerts/instances", {}, { shop: false });
+  const rules = useApi<AlertRuleDto[]>("/alerts/rules", {}, { shop: false, org: true });
+  const inst = useApi<(AlertInstanceDto & { detail?: string })[]>("/alerts/instances", {}, { shop: false, org: true });
   const refresh = () => qc.invalidateQueries({ predicate: (q) => String(q.queryKey[0]).startsWith("/alerts") });
 
   async function create(e: React.FormEvent<HTMLFormElement>) {
@@ -28,14 +31,14 @@ export default function AlertsPage() {
     const metric = v("metric") as AlertMetric;
     const pct = metric.includes("rate") || metric === "net_margin";
     const threshold = metric === "real_roas_below_breakeven" ? 1 : Number(v("threshold").replace(",", ".")) / (pct ? 100 : 1);
-    await f("/alerts/rules", { method: "POST", body: JSON.stringify({ name: v("name"), conditions: [{ metric, operator: metric === "real_roas_below_breakeven" ? "gte" : v("op"), threshold, window: v("window") }], actions: [{ type: "email", to: v("email") }] }) });
+    await f(`/alerts/rules${q}`, { method: "POST", body: JSON.stringify({ name: v("name"), conditions: [{ metric, operator: metric === "real_roas_below_breakeven" ? "gte" : v("op"), threshold, window: v("window") }], actions: [{ type: "email", to: v("email") }] }) });
     fm.reset();
     refresh();
   }
 
   return (
     <>
-      <PageHeader title="Cảnh báo" subtitle="Đánh giá mỗi vài phút trên số lãi lỗ theo ngày · gửi email và Telegram" actions={<Button onClick={async () => { await f("/alerts/evaluate", { method: "POST" }); refresh(); }}>Kiểm tra ngay</Button>} />
+      <PageHeader title="Cảnh báo" subtitle="Đánh giá mỗi vài phút trên số liệu Dashboard theo ngày · gửi email và Telegram" actions={edit && <Button onClick={async () => { await f(`/alerts/evaluate${q}`, { method: "POST" }); refresh(); }}>Kiểm tra ngay</Button>} />
       <div className="grid gap-3.5 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
         <Panel title="Quy tắc">
           {rules.error && <ErrorBox error={rules.error} />}
@@ -48,11 +51,12 @@ export default function AlertsPage() {
                   <Td className="whitespace-normal">{r.conditions.map((c) => `${METRIC[c.metric]} ${c.metric === "real_roas_below_breakeven" ? "" : `${OP[c.operator]} ${fmtTh(c.metric, c.threshold)}`} · ${WIN[c.window]}`).join(" và ")}</Td>
                   <Td className="text-xs">{r.actions.map((a) => (a.type === "email" ? a.to : `Telegram ${a.chatId}`)).join(", ")}</Td>
                   <Td>{!r.isActive ? <Badge tone="gray">Tắt</Badge> : r.state === "FIRING" ? <Badge tone="red">Đang kích hoạt</Badge> : <Badge tone="green">Bình thường</Badge>}</Td>
-                  <Td><Toggle label={`Bật ${r.name}`} on={r.isActive} onChange={async (v) => { await f(`/alerts/rules/${r.id}`, { method: "PUT", body: JSON.stringify({ isActive: v }) }); refresh(); }} /></Td></tr>
+                  <Td><Toggle label={`Bật ${r.name}`} on={r.isActive} onChange={!edit ? undefined : async (v) => { await f(`/alerts/rules/${r.id}${q}`, { method: "PUT", body: JSON.stringify({ isActive: v }) }); refresh(); }} /></Td></tr>
               ))}</tbody>
             </TableWrap>
           )}
         </Panel>
+        {edit ? (
         <Panel title="Tạo quy tắc">
           <form onSubmit={create} className="grid gap-2.5 text-sm">
             <input id="a-name" name="name" required placeholder="Tên quy tắc, vd ROAS thực thấp" className="rounded-lg border border-gray-200 px-3 py-1.5" />
@@ -62,10 +66,11 @@ export default function AlertsPage() {
               <input id="a-threshold" name="threshold" placeholder="Ngưỡng (% với tỉ lệ)" className="w-40 rounded-lg border border-gray-200 px-3 py-1.5" />
               <select id="a-window" name="window" className="rounded-lg border border-gray-200 bg-white px-2 py-1.5"><option value="7d">7 ngày</option><option value="24h">24 giờ</option><option value="today">Hôm nay</option></select>
             </div>
-            <input id="a-email" name="email" type="email" required defaultValue="demo@ecomdash.vn" className="rounded-lg border border-gray-200 px-3 py-1.5" />
+            <input id="a-email" name="email" type="email" required placeholder="email nhận cảnh báo" className="rounded-lg border border-gray-200 px-3 py-1.5" />
             <Button variant="primary" type="submit">Lưu quy tắc</Button>
           </form>
         </Panel>
+        ) : <Panel title="Tạo quy tắc"><p className="text-sm text-gray-500">Chế độ chỉ xem — chỉ chủ shop hoặc quản trị được tạo quy tắc.</p></Panel>}
       </div>
       <Panel title="Lịch sử">
         {inst.data && (
@@ -75,7 +80,7 @@ export default function AlertsPage() {
               {inst.data.map((i) => (
                 <tr key={i.id}><Td>{formatDateTime(i.firedAt)}</Td><Td className="whitespace-normal font-medium">{i.title}</Td><Td className="whitespace-normal text-xs text-gray-500">{i.detail}</Td>
                   <Td>{i.state === "RESOLVED" ? <Badge tone="green">Đã hết</Badge> : i.acknowledgedAt ? <Badge tone="amber">Đã xem</Badge> : <Badge tone="red">Đang kích hoạt</Badge>}</Td>
-                  <Td>{i.state === "FIRING" && !i.acknowledgedAt && <Button size="sm" onClick={async () => { await f(`/alerts/instances/${i.id}/acknowledge`, { method: "POST" }); refresh(); }}>Đánh dấu đã xem</Button>}</Td></tr>
+                  <Td>{i.state === "FIRING" && !i.acknowledgedAt && <Button size="sm" onClick={async () => { await f(`/alerts/instances/${i.id}/acknowledge${q}`, { method: "POST" }); refresh(); }}>Đánh dấu đã xem</Button>}</Td></tr>
               ))}
               {!inst.data.length && <tr><Td colSpan={5} className="text-center text-gray-500">Chưa có cảnh báo nào</Td></tr>}
             </tbody>

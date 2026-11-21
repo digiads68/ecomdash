@@ -1,6 +1,6 @@
 "use client";
 
-import type { PnlDailyRowDto, PnlSummaryDto, ShopDto } from "@ecomdash/shared";
+import type { PnlDailyRowDto, PnlSummaryDto, ShopDto, SyncWatermarkDto } from "@ecomdash/shared";
 import { Chart, C, axisX, axisY, legend } from "@/components/Chart";
 import { Badge, Empty, ErrorBox, KpiCard, Loading, Notice, PageHeader, Panel, Tag, TableWrap, Td, Th } from "@/components/ui";
 import { useApi } from "@/lib/api";
@@ -13,18 +13,19 @@ const STATUS: Record<string, [string, "green" | "amber" | "red" | "gray"]> = {
 };
 const GROUP_LABEL: Record<string, string> = { COGS: "Giá vốn", PLATFORM: "Phí sàn", PLATFORM_OTHER: "Phí khác trên sàn", CUSTOM: "Chi phí tự nhập", ADS: "Quảng cáo" };
 
-export default function OverviewPage() {
+export default function DashboardPage() {
   const shopId = useAppStore((s) => s.shopId);
   const shops = useApi<ShopDto[]>("/shops", {}, { shop: false });
   const s = useApi<PnlSummaryDto>("/pnl/summary");
   const daily = useApi<PnlDailyRowDto[]>("/pnl/daily");
+  const wm = useApi<SyncWatermarkDto>("/sync/watermark", {}, { shop: false, org: true, refetchInterval: 60_000 });
   const shop = shops.data?.find((x) => x.id === shopId);
 
-  if (shops.data && !shops.data.length) return <><PageHeader title="Điều hành lãi lỗ" /><Empty title="Chưa kết nối TikTok Shop">Vào <a className="text-primary-600 underline" href="/settings/connections">Cài đặt → Kết nối</a> để kết nối shop và tài khoản quảng cáo.</Empty></>;
+  if (shops.data && !shops.data.length) return <><PageHeader title="Dashboard" /><Empty title="Chưa có shop nào">Khách mới đăng nhập bằng TikTok Shop sẽ tự gắn shop; nhân viên DigiAds gắn thay khách ở <a className="text-primary-600 underline" href="/admin/clients">Quản trị → Khách hàng</a>.</Empty></>;
   if (s.error) return <ErrorBox error={s.error} onRetry={() => s.refetch()} />;
-  if (!s.data) return <><PageHeader title="Điều hành lãi lỗ" /><Loading rows={4} /></>;
+  if (!s.data) return <><PageHeader title="Dashboard" /><Loading rows={4} /></>;
   const d = s.data;
-  if (!d.orders.paid.count) return <><PageHeader title="Điều hành lãi lỗ" /><Empty /></>;
+  if (!d.orders.paid.count) return <><PageHeader title="Dashboard" /><Empty /></>;
 
   const o = d.orders;
   const st = STATUS[d.roas.status];
@@ -41,7 +42,7 @@ export default function OverviewPage() {
 
   return (
     <>
-      <PageHeader title="Điều hành lãi lỗ" subtitle={<>{shop?.name} · đơn đặt {formatFullDate(d.period.from)} – {formatFullDate(d.period.to)} · đã chốt <b>{formatPct(settled, 0)}</b> giá trị đơn{settled < 0.995 && ", phần còn lại là ước tính"}</>} />
+      <PageHeader title="Dashboard" subtitle={<>{shop?.name} · đơn đặt {formatFullDate(d.period.from)} – {formatFullDate(d.period.to)} · đã chốt <b>{formatPct(settled, 0)}</b> giá trị đơn{settled < 0.995 && ", phần còn lại là ước tính"}</>} />
 
       <Panel title={`Kết cục ${formatNumber(o.paid.count)} đơn đặt trong kỳ`} hint="gom theo ngày đặt đơn">
         <div className="mb-3.5 flex h-3.5 gap-0.5 overflow-hidden rounded-full">
@@ -109,6 +110,17 @@ export default function OverviewPage() {
             )}
             {d.dataQuality.unsettledOrders > 0 && (
               <Notice href="/finance" title={`${formatNumber(d.dataQuality.unsettledOrders)} đơn chưa đối soát`}>Phí sàn của các đơn này đang ước tính theo tỉ lệ thực tế 75 ngày gần nhất</Notice>
+            )}
+            {wm.data?.adsMode === "TIKTOK" && wm.data.adsLagMinutes != null && wm.data.adsLagMinutes > 20 && (
+              <Notice tone="amber" title={`Quảng cáo đang trễ ${wm.data.adsLagMinutes} phút`}>Chi phí quảng cáo hôm nay chưa đầy đủ — ROAS và lãi ròng hôm nay sẽ còn thay đổi</Notice>
+            )}
+            {(d.dataQuality.shopGmvMaxAdFee > 0 || d.dataQuality.adsPaidFromBalance > 0 || d.dataQuality.gmvMaxRevenueShare != null) && (
+              <Notice tone="blue" href="/finance" title="Đối chiếu quảng cáo phía TikTok Shop">
+                {d.dataQuality.gmvMaxRevenueShare != null && <>{formatPct(d.dataQuality.gmvMaxRevenueShare, 0)} doanh thu đến từ GMV Max · </>}
+                {d.dataQuality.shopGmvMaxAdFee > 0 && <>phí GMV Max trừ vào đơn {formatVNDCompact(d.dataQuality.shopGmvMaxAdFee)}{d.dataQuality.gmvMaxFeeGap != null && ` (lệch ${formatPct(d.dataQuality.gmvMaxFeeGap)} so với Ads API)`} · </>}
+                {d.dataQuality.adsPaidFromBalance > 0 && <>QC trừ vào số dư shop {formatVNDCompact(d.dataQuality.adsPaidFromBalance)} · </>}
+                chỉ để đối chiếu, chi phí QC lấy từ TikTok for Business
+              </Notice>
             )}
           </div>
         </Panel>

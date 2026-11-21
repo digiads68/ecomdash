@@ -71,7 +71,8 @@ class AlertsController {
   }
 
   @Post("evaluate")
-  evaluate() {
+  evaluate(@Acc() access: Access, @Query("orgId") orgIdQ: string | undefined) {
+    resolveOrgId(access, orgIdQ, "edit");
     return this.evaluator.evaluateAll();
   }
 }

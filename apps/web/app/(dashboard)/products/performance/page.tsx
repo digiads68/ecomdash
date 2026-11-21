@@ -21,7 +21,7 @@ export default function ProfitProductsPage() {
   const total = rows.reduce((s, r) => s + r.netProfit, 0);
   return (
     <>
-      <PageHeader title="Lãi lỗ sản phẩm" subtitle={`Đơn đặt ${formatFullDate(period.from)} – ${formatFullDate(period.to)} · lãi ròng sau giá vốn, phí sàn, chi phí tự nhập và quảng cáo phân bổ`}
+      <PageHeader title="Hiệu quả sản phẩm" subtitle={`Đơn đặt ${formatFullDate(period.from)} – ${formatFullDate(period.to)} · lãi ròng sau giá vốn, phí sàn, chi phí tự nhập và quảng cáo phân bổ`}
         actions={<select id="pp-sort" className="rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-sm" value={sort} onChange={(e) => setSort(e.target.value)}>{SORTS.map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}</select>} />
       {q.error && <ErrorBox error={q.error} onRetry={() => q.refetch()} />}
       {!q.data && !q.error && <Loading />}

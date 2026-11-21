@@ -20,7 +20,7 @@ export default function FinancePage() {
   const fees = pnl.data?.costs.filter((c) => c.group === "PLATFORM" || c.group === "PLATFORM_OTHER") ?? [];
   return (
     <>
-      <PageHeader title="Đối soát" subtitle={<>Số tiền TikTok thực trả theo từng đơn và kỳ thanh toán · lãi lỗ xem ở <Link className="text-primary-600 hover:underline" href="/overview">Điều hành lãi lỗ</Link></>} />
+      <PageHeader title="Đối soát" subtitle={<>Số tiền TikTok thực trả theo từng đơn và kỳ thanh toán · lãi ròng xem ở <Link className="text-primary-600 hover:underline" href="/dashboard">Dashboard</Link></>} />
       {t && (
         <div className="grid grid-cols-2 gap-3.5 lg:grid-cols-4">
           <KpiCard label="Đã đối soát" value={formatVNDCompact(t.settledAmount)} tag={`${formatNumber(t.settledOrders)} đơn`} />

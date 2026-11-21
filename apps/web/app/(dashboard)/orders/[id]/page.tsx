@@ -48,11 +48,11 @@ export default function OrderDetailPage() {
         </Panel>
         <Panel title="Đối soát TikTok" hint={s ? `kỳ ${s.settledAt ? formatDateTime(s.settledAt) : ""}` : "chưa đối soát"}>
           {s ? <Kv rows={[["Doanh thu", s.revenueAmount], ["Hoa hồng sàn", -s.platformCommission], ["Phí giao dịch", -s.transactionFee], ["Hoa hồng affiliate", -s.affiliateCommission], ["Phí hạ tầng", -s.infrastructureFee], ["Vận chuyển", s.shippingCostAmount], ["Thuế khấu trừ", -s.taxAmount], ...(s.otherFees ? [["Phí khác", -s.otherFees] as [string, number]] : [])]} total={["Thực nhận", s.settlementAmount]} />
-            : <p className="text-sm text-gray-500">TikTok chưa quyết toán đơn này. Lãi lỗ đang dùng tỉ lệ phí ước tính.</p>}
+            : <p className="text-sm text-gray-500">TikTok chưa quyết toán đơn này. Dashboard đang dùng tỉ lệ phí ước tính.</p>}
         </Panel>
-        <Panel title="Lãi lỗ của đơn" hint={e ? (e.feesEstimated || e.cogsEstimated ? "có phần ước tính" : "đã chốt") : ""}>
+        <Panel title="Lãi ròng của đơn" hint={e ? (e.feesEstimated || e.cogsEstimated ? "có phần ước tính" : "đã chốt") : ""}>
           {e ? <Kv rows={[["Doanh thu thực", e.realizedRevenue], ["Phí sàn", -e.platformFees], ["Phí khác", -e.otherPlatformFees], ["Giá vốn", -e.cogs], ["Chi phí tự nhập", -e.customCosts]]} total={["Lãi trước quảng cáo", e.contribution]} />
-            : <p className="text-sm text-gray-500">Đơn chưa thanh toán nên không tính lãi lỗ.</p>}
+            : <p className="text-sm text-gray-500">Đơn chưa thanh toán nên không tính lãi ròng.</p>}
         </Panel>
       </div>
       {o.returns.length > 0 && (
