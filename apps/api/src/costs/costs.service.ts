@@ -1,8 +1,9 @@
+import type { Access } from "../access/access";
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import ExcelJS from "exceljs";
 import { prisma, Prisma } from "@ecomdash/database";
 import { addDays, CostItemDto, CostSkuListDto, dateOnly, ShopConfigDto, toBusinessDate, ymd } from "@ecomdash/shared";
-import { getShopForOrg, n, pageParams, parsePeriod } from "../common/util";
+import { getShopForUser, n, pageParams, parsePeriod } from "../common/util";
 import { QueueService } from "../sync/queue.service";
 
 const YMD = /^\d{4}-\d{2}-\d{2}$/;
@@ -17,8 +18,8 @@ export class CostsService {
   constructor(private readonly queue: QueueService) {}
 
   // ───── SKU costs (11 §3.1) ─────
-  async listSkus(orgId: string, shopId: string, q: { missing?: string; q?: string; page?: string; pageSize?: string }): Promise<CostSkuListDto> {
-    const shop = await getShopForOrg(orgId, shopId);
+  async listSkus(access: Access, shopId: string, q: { missing?: string; q?: string; page?: string; pageSize?: string }): Promise<CostSkuListDto> {
+    const shop = await getShopForUser(access, shopId);
     const today = toBusinessDate(new Date(), shop.timezone);
     const skus = await prisma.sku.findMany({
       where: {
@@ -47,8 +48,8 @@ export class CostsService {
     return { items: rows.slice(skip, skip + take), total: rows.length, page, pageSize, missingCount, totalSkus, missingRevenueShare: totalRevenue > 0 ? missingRevenue / totalRevenue : null };
   }
 
-  async upsertSkuCosts(orgId: string, shopId: string, items: SkuCostInput[]) {
-    const shop = await getShopForOrg(orgId, shopId);
+  async upsertSkuCosts(access: Access, shopId: string, items: SkuCostInput[]) {
+    const shop = await getShopForUser(access, shopId, "edit");
     if (!Array.isArray(items) || !items.length) throw new BadRequestException("items is required");
     const skus = await prisma.sku.findMany({ where: { id: { in: items.map((i) => i.skuId) }, product: { shopId: shop.id } }, select: { id: true } });
     const ok = new Set(skus.map((s) => s.id));
@@ -67,8 +68,8 @@ export class CostsService {
     return { saved: items.length, recomputeFrom: from };
   }
 
-  async exportSkus(orgId: string, shopId: string, format: "xlsx" | "csv") {
-    const list = await this.listSkus(orgId, shopId, { pageSize: "500" });
+  async exportSkus(access: Access, shopId: string, format: "xlsx" | "csv") {
+    const list = await this.listSkus(access, shopId, { pageSize: "500" });
     const header = ["tiktok_sku_id", "seller_sku", "product_title", "sku_name", "sale_price", "unit_cost", "effective_from"];
     const data = list.items.map((r) => [r.tiktokSkuId, r.sellerSku ?? "", r.productTitle, r.skuName ?? "", r.salePrice, r.unitCost ?? "", r.effectiveFrom ?? ""]);
     if (format === "csv") {
@@ -84,8 +85,8 @@ export class CostsService {
   }
 
   /** Rows that don't match a SKU are reported by row number and skipped (11 §3.1). */
-  async importSkus(orgId: string, shopId: string, file: { buffer: Buffer; originalname: string } | undefined) {
-    const shop = await getShopForOrg(orgId, shopId);
+  async importSkus(access: Access, shopId: string, file: { buffer: Buffer; originalname: string } | undefined) {
+    const shop = await getShopForUser(access, shopId, "edit");
     if (!file) throw new BadRequestException("file is required");
     let rows: string[][] = [];
     if (file.originalname.toLowerCase().endsWith(".csv")) {
@@ -116,7 +117,7 @@ export class CostsService {
       else if (!(value >= 0)) errors.push({ row: rowNo, message: `Giá vốn không hợp lệ: ${cost}` });
       else items.push({ skuId, unitCost: value, effectiveFrom: from });
     });
-    if (items.length) await this.upsertSkuCosts(orgId, shopId, items);
+    if (items.length) await this.upsertSkuCosts(access, shopId, items);
     return { imported: items.length, errors };
   }
 
@@ -128,8 +129,8 @@ export class CostsService {
     };
   }
 
-  async listItems(orgId: string, shopId: string, from?: string, to?: string): Promise<CostItemDto[]> {
-    const shop = await getShopForOrg(orgId, shopId);
+  async listItems(access: Access, shopId: string, from?: string, to?: string): Promise<CostItemDto[]> {
+    const shop = await getShopForUser(access, shopId);
     const p = parsePeriod(from, to, shop.timezone);
     const items = await prisma.costItem.findMany({ where: { shopId: shop.id }, orderBy: { createdAt: "asc" } });
     const pnl = await prisma.shopDailyPnl.findMany({ where: { shopId: shop.id, date: { gte: dateOnly(p.from), lte: dateOnly(p.to) } }, select: { customBreakdown: true } });
@@ -148,8 +149,8 @@ export class CostsService {
     if (b.effectiveTo && !YMD.test(b.effectiveTo)) throw new BadRequestException("effectiveTo must be YYYY-MM-DD");
   }
 
-  async createItem(orgId: string, shopId: string, b: CostItemInput) {
-    const shop = await getShopForOrg(orgId, shopId);
+  async createItem(access: Access, shopId: string, b: CostItemInput) {
+    const shop = await getShopForUser(access, shopId, "edit");
     this.validate(b);
     const i = await prisma.costItem.create({
       data: {
@@ -161,9 +162,10 @@ export class CostsService {
     return this.itemDto(i);
   }
 
-  async updateItem(orgId: string, id: string, b: Partial<CostItemInput>) {
-    const cur = await prisma.costItem.findFirst({ where: { id, shop: { organizationId: orgId } } });
+  async updateItem(access: Access, id: string, b: Partial<CostItemInput>) {
+    const cur = await prisma.costItem.findUnique({ where: { id } });
     if (!cur) throw new NotFoundException();
+    await getShopForUser(access, cur.shopId, "edit");
     this.validate({ ...b, method: b.method ?? cur.method }, true);
     const i = await prisma.costItem.update({
       where: { id },
@@ -177,23 +179,24 @@ export class CostsService {
     return this.itemDto(i);
   }
 
-  async deleteItem(orgId: string, id: string) {
-    const cur = await prisma.costItem.findFirst({ where: { id, shop: { organizationId: orgId } } });
+  async deleteItem(access: Access, id: string) {
+    const cur = await prisma.costItem.findUnique({ where: { id } });
     if (!cur) throw new NotFoundException();
+    await getShopForUser(access, cur.shopId, "edit");
     await prisma.costItem.delete({ where: { id } });
     await this.queue.requestPnlRecompute(cur.shopId, ymd(cur.effectiveFrom));
     return { ok: true };
   }
 
   // ───── shop config (11 §3.3) ─────
-  async getConfig(orgId: string, shopId: string): Promise<ShopConfigDto> {
-    const shop = await getShopForOrg(orgId, shopId);
+  async getConfig(access: Access, shopId: string): Promise<ShopConfigDto> {
+    const shop = await getShopForUser(access, shopId);
     const c = await prisma.shopConfig.upsert({ where: { shopId: shop.id }, create: { shopId: shop.id }, update: {} });
     return { defaultCogsPercent: n(c.defaultCogsPercent), restockReturns: c.restockReturns };
   }
 
-  async setConfig(orgId: string, shopId: string, b: Partial<ShopConfigDto>) {
-    const shop = await getShopForOrg(orgId, shopId);
+  async setConfig(access: Access, shopId: string, b: Partial<ShopConfigDto>) {
+    const shop = await getShopForUser(access, shopId, "edit");
     if (b.defaultCogsPercent !== undefined && !(b.defaultCogsPercent >= 0 && b.defaultCogsPercent <= 100)) throw new BadRequestException("defaultCogsPercent must be 0–100");
     const data = { ...(b.defaultCogsPercent !== undefined ? { defaultCogsPercent: b.defaultCogsPercent } : {}), ...(b.restockReturns !== undefined ? { restockReturns: !!b.restockReturns } : {}) };
     const c = await prisma.shopConfig.upsert({ where: { shopId: shop.id }, create: { shopId: shop.id, ...data }, update: data });

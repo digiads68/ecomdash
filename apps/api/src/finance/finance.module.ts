@@ -1,15 +1,16 @@
 import { Controller, Get, Module, Query } from "@nestjs/common";
 import { prisma } from "@ecomdash/database";
 import { dateOnly, StatementRowDto } from "@ecomdash/shared";
-import { OrgId } from "../common/decorators";
-import { getShopForOrg, n, pageParams, parsePeriod } from "../common/util";
+import type { Access } from "../access/access";
+import { Acc } from "../common/decorators";
+import { getShopForUser, n, pageParams, parsePeriod } from "../common/util";
 import { econRow } from "../pnl/pnl.service";
 
 @Controller("finance")
 class FinanceController {
   @Get("statements")
-  async statements(@OrgId() orgId: string, @Query() q: { shopId: string; from?: string; to?: string }): Promise<StatementRowDto[]> {
-    const shop = await getShopForOrg(orgId, q.shopId);
+  async statements(@Acc() access: Access, @Query() q: { shopId: string; from?: string; to?: string }): Promise<StatementRowDto[]> {
+    const shop = await getShopForUser(access, q.shopId);
     const p = parsePeriod(q.from, q.to, shop.timezone);
     const rows = await prisma.statement.findMany({ where: { shopId: shop.id, statementTime: { gte: dateOnly(p.from), lte: new Date(dateOnly(p.to).getTime() + 8 * 86_400_000) } }, orderBy: { statementTime: "desc" } });
     return rows.map((s) => ({
@@ -20,8 +21,8 @@ class FinanceController {
 
   /** Per-order settlement view: actual TikTok numbers when settled, estimate otherwise. */
   @Get("settlements")
-  async settlements(@OrgId() orgId: string, @Query() q: { shopId: string; from?: string; to?: string; settled?: string; page?: string; pageSize?: string }) {
-    const shop = await getShopForOrg(orgId, q.shopId);
+  async settlements(@Acc() access: Access, @Query() q: { shopId: string; from?: string; to?: string; settled?: string; page?: string; pageSize?: string }) {
+    const shop = await getShopForUser(access, q.shopId);
     const p = parsePeriod(q.from, q.to, shop.timezone);
     const { page, pageSize, skip, take } = pageParams(q.page, q.pageSize);
     const where = {

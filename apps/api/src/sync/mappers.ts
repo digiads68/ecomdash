@@ -5,7 +5,7 @@ import type {
 import { dateOnly, normalizeOrderStatus, toBusinessDate } from "@ecomdash/shared";
 import { buyerHash } from "../common/crypto";
 
-const money = (s?: string | number | null) => (s == null || s === "" ? 0 : Number(s));
+export const money = (s?: string | number | null) => (s == null || s === "" ? 0 : Number(s));
 const time = (sec?: number | null) => (sec ? new Date(sec * 1000) : null);
 
 /** 03 §3 — order wire → Order row (PII reduced to a salted hash + province). */
@@ -141,16 +141,18 @@ const KNOWN_FEES: Record<string, "platformCommission" | "transactionFee" | "affi
   referral_fee_amount: "platformCommission",
   transaction_fee_amount: "transactionFee",
   affiliate_commission_amount: "affiliateCommission",
-  affiliate_ads_commission_amount: "affiliateCommission",
   vn_fix_infrastructure_fee_amount: "infrastructureFee",
 };
+
+/** Fee keys that are ad spend paid out of the order (GMV Max auto-pay) — kept apart so ads are not counted twice (12 §4). */
+const AD_FEES = new Set(["gmv_max_ad_fee_amount"]);
 
 /** 01 §8.2 — finance 202501 order transactions; fees are negative on the wire, stored as positive. Unknown fee keys → otherFees. */
 export function mapSettlement(txs: OrderStatementTransaction[], orderId: string) {
   const out = {
     orderId, tiktokStatementId: null as string | null, currency: "VND",
     revenueAmount: 0, shippingCostAmount: 0, feeTaxAmount: 0, platformCommission: 0, transactionFee: 0,
-    affiliateCommission: 0, infrastructureFee: 0, otherFees: 0, taxAmount: 0, settlementAmount: 0,
+    affiliateCommission: 0, affiliateAdsCommission: 0, infrastructureFee: 0, otherFees: 0, taxAmount: 0, settlementAmount: 0, gmvMaxAdFee: 0,
     raw: txs as unknown as Prisma.InputJsonValue, settledAt: null as Date | null, syncedAt: new Date(),
   };
   for (const t of txs) {
@@ -160,11 +162,16 @@ export function mapSettlement(txs: OrderStatementTransaction[], orderId: string)
     out.shippingCostAmount += money(t.shipping_cost_amount);
     out.feeTaxAmount += money(t.fee_tax_amount);
     out.settlementAmount += money(t.settlement_amount);
+    // Transaction-level total when present; otherwise the SKU breakdown below is summed (never both).
+    const txAdFee = t.gmv_max_ad_fee_amount ? Math.abs(money(t.gmv_max_ad_fee_amount)) : null;
+    if (txAdFee != null) out.gmvMaxAdFee += txAdFee;
     if (t.statement_time) out.settledAt = new Date(t.statement_time * 1000);
     for (const sku of t.sku_transactions ?? []) {
       for (const [k, v] of Object.entries(sku.fee_tax_breakdown?.fee ?? {})) {
         const target = KNOWN_FEES[k];
-        if (target) out[target] += Math.abs(money(v));
+        if (AD_FEES.has(k)) { if (txAdFee == null) out.gmvMaxAdFee += Math.abs(money(v)); }
+        else if (k === "affiliate_ads_commission_amount") { out.affiliateAdsCommission += Math.abs(money(v)); out.affiliateCommission += Math.abs(money(v)); }
+        else if (target) out[target] += Math.abs(money(v));
         else out.otherFees += Math.abs(money(v));
       }
       for (const v of Object.values(sku.fee_tax_breakdown?.tax ?? {})) out.taxAmount += Math.abs(money(v));

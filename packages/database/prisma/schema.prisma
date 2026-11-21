@@ -11,14 +11,16 @@ datasource db {
 // ───────────── Organisation & users ─────────────
 
 model Organization {
-  id         String    @id @default(cuid())
-  clerkOrgId String?   @unique
-  name       String
-  slug       String    @unique
-  plan       Plan      @default(STARTER)
-  status     OrgStatus @default(ACTIVE)
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
+  id          String    @id @default(cuid())
+  name        String
+  slug        String    @unique
+  plan        Plan      @default(STARTER)
+  status      OrgStatus @default(ACTIVE)
+  adsMode     AdsMode   @default(TIKTOK)
+  onboardedAt DateTime?
+  createdById String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   members              OrganizationMember[]
   sellerAuthorizations SellerAuthorization[]
@@ -29,18 +31,86 @@ model Organization {
   alertInstances       AlertInstance[]
   reportConfigs        ReportConfig[]
   syncStates           SyncState[]
+  syncRounds           SyncRound[]
+  invitations          Invitation[]
+  auditLogs            AuditLog[]
   subscription         Subscription?
 }
 
 model User {
-  id          String   @id @default(cuid())
-  clerkUserId String?  @unique
-  email       String   @unique
-  name        String?
-  avatarUrl   String?
-  createdAt   DateTime @default(now())
+  id           String        @id @default(cuid())
+  email        String?       @unique
+  name         String?
+  avatarUrl    String?
+  passwordHash String?
+  platformRole PlatformRole?
+  tiktokOpenId String?       @unique
+  status       UserStatus    @default(ACTIVE)
+  lastLoginAt  DateTime?
+  createdAt    DateTime      @default(now())
 
   memberships OrganizationMember[]
+  shopAccess  ShopAccess[]         @relation("ShopAccessUser")
+  sessions    Session[]
+}
+
+/// Per-shop view grant for platform MODs and organisation MEMBERs (docs/architecture/12).
+model ShopAccess {
+  id          String   @id @default(cuid())
+  userId      String
+  shopId      String
+  grantedById String?
+  createdAt   DateTime @default(now())
+
+  user User @relation("ShopAccessUser", fields: [userId], references: [id], onDelete: Cascade)
+  shop Shop @relation(fields: [shopId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, shopId])
+  @@index([shopId])
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  tokenHash String   @unique
+  expiresAt DateTime
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Invitation {
+  id             String        @id @default(cuid())
+  email          String
+  organizationId String?
+  platformRole   PlatformRole?
+  orgRole        MemberRole?
+  shopIds        String[]
+  tokenHash      String        @unique
+  invitedById    String?
+  expiresAt      DateTime
+  acceptedAt     DateTime?
+  createdAt      DateTime      @default(now())
+
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+}
+
+model AuditLog {
+  id             String   @id @default(cuid())
+  actorId        String?
+  action         String
+  organizationId String?
+  targetType     String
+  targetId       String
+  meta           Json     @default("{}")
+  createdAt      DateTime @default(now())
+
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, createdAt])
 }
 
 model OrganizationMember {
@@ -63,8 +133,9 @@ model OrganizationMember {
 
 model SellerAuthorization {
   id                    String     @id @default(cuid())
-  organizationId        String
-  openId                String
+  organizationId        String?
+  openId                String     @unique
+  source                AuthSource @default(SELF_SIGNUP)
   sellerName            String
   sellerBaseRegion      String
   accessTokenEncrypted  String
@@ -77,17 +148,15 @@ model SellerAuthorization {
   createdAt             DateTime   @default(now())
   updatedAt             DateTime   @updatedAt
 
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
   shops        Shop[]
-
-  @@unique([organizationId, openId])
 }
 
 model Shop {
   id                    String   @id @default(cuid())
-  organizationId        String
+  organizationId        String?
   sellerAuthorizationId String
-  tiktokShopId          String
+  tiktokShopId          String   @unique
   cipher                String
   code                  String?
   name                  String
@@ -99,8 +168,9 @@ model Shop {
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
 
-  organization        Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization        Organization?         @relation(fields: [organizationId], references: [id], onDelete: SetNull)
   sellerAuthorization SellerAuthorization   @relation(fields: [sellerAuthorizationId], references: [id], onDelete: Cascade)
+  access              ShopAccess[]
   config              ShopConfig?
   products            Product[]
   orders              Order[]
@@ -115,7 +185,6 @@ model Shop {
   skuCosts            SkuCost[]
   costItems           CostItem[]
 
-  @@unique([organizationId, tiktokShopId])
   @@index([organizationId])
 }
 
@@ -249,30 +318,46 @@ model Statement {
   paymentStatus      String
   paymentId          String?
 
-  shop Shop @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  shop        Shop                  @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  adjustments StatementAdjustment[]
 
   @@unique([shopId, tiktokStatementId])
   @@index([shopId, statementTime])
 }
 
+/// Statement-level adjustments, e.g. GMV_PAYMENT_FOR_ADS (ads paid from the shop balance) — reconciliation only.
+model StatementAdjustment {
+  id          String  @id @default(cuid())
+  statementId String
+  type        String
+  amount      Decimal @db.Decimal(18, 2)
+  reference   String?
+
+  statement Statement @relation(fields: [statementId], references: [id], onDelete: Cascade)
+
+  @@unique([statementId, type, reference])
+}
+
 model OrderSettlement {
-  id                  String    @id @default(cuid())
-  orderId             String    @unique
-  tiktokStatementId   String?
-  currency            String
-  revenueAmount       Decimal   @db.Decimal(18, 2)
-  shippingCostAmount  Decimal   @db.Decimal(18, 2)
-  feeTaxAmount        Decimal   @db.Decimal(18, 2)
-  platformCommission  Decimal   @default(0) @db.Decimal(18, 2)
-  transactionFee      Decimal   @default(0) @db.Decimal(18, 2)
-  affiliateCommission Decimal   @default(0) @db.Decimal(18, 2)
-  infrastructureFee   Decimal   @default(0) @db.Decimal(18, 2)
-  otherFees           Decimal   @default(0) @db.Decimal(18, 2)
-  taxAmount           Decimal   @default(0) @db.Decimal(18, 2)
-  settlementAmount    Decimal   @db.Decimal(18, 2)
-  raw                 Json
-  settledAt           DateTime?
-  syncedAt            DateTime  @default(now())
+  id                     String    @id @default(cuid())
+  orderId                String    @unique
+  tiktokStatementId      String?
+  currency               String
+  revenueAmount          Decimal   @db.Decimal(18, 2)
+  shippingCostAmount     Decimal   @db.Decimal(18, 2)
+  feeTaxAmount           Decimal   @db.Decimal(18, 2)
+  platformCommission     Decimal   @default(0) @db.Decimal(18, 2)
+  transactionFee         Decimal   @default(0) @db.Decimal(18, 2)
+  affiliateCommission    Decimal   @default(0) @db.Decimal(18, 2)
+  infrastructureFee      Decimal   @default(0) @db.Decimal(18, 2)
+  otherFees              Decimal   @default(0) @db.Decimal(18, 2)
+  taxAmount              Decimal   @default(0) @db.Decimal(18, 2)
+  gmvMaxAdFee            Decimal   @default(0) @db.Decimal(18, 2)
+  affiliateAdsCommission Decimal   @default(0) @db.Decimal(18, 2)
+  settlementAmount       Decimal   @db.Decimal(18, 2)
+  raw                    Json
+  settledAt              DateTime?
+  syncedAt               DateTime  @default(now())
 
   order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
 }
@@ -305,23 +390,37 @@ model ReturnRequest {
 // ───────────── Ads ─────────────
 
 model AdsAuthorization {
-  id                   String     @id @default(cuid())
-  organizationId       String
+  id                   String      @id @default(cuid())
+  organizationId       String?
+  kind                 AdsAuthKind @default(CLIENT)
+  bcId                 String?
+  label                String?
   accessTokenEncrypted String
   scopes               String[]
-  status               AuthStatus @default(ACTIVE)
-  createdAt            DateTime   @default(now())
-  updatedAt            DateTime   @updatedAt
+  status               AuthStatus  @default(ACTIVE)
+  createdAt            DateTime    @default(now())
+  updatedAt            DateTime    @updatedAt
 
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  advertisers  Advertiser[]
+  organization Organization?             @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  advertisers  AdvertiserAuthorization[]
+}
+
+/// One advertiser can be reachable through several tokens (the client's own OAuth and DigiAds' Business Center).
+model AdvertiserAuthorization {
+  advertiserId       String
+  adsAuthorizationId String
+  createdAt          DateTime @default(now())
+
+  advertiser       Advertiser       @relation(fields: [advertiserId], references: [id], onDelete: Cascade)
+  adsAuthorization AdsAuthorization @relation(fields: [adsAuthorizationId], references: [id], onDelete: Cascade)
+
+  @@id([advertiserId, adsAuthorizationId])
 }
 
 model Advertiser {
   id                 String   @id @default(cuid())
-  organizationId     String
-  adsAuthorizationId String
-  tiktokAdvertiserId String
+  organizationId     String?
+  tiktokAdvertiserId String   @unique
   name               String
   currency           String   @default("VND")
   timezone           String   @default("Asia/Ho_Chi_Minh")
@@ -330,13 +429,13 @@ model Advertiser {
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 
-  organization     Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  adsAuthorization AdsAuthorization      @relation(fields: [adsAuthorizationId], references: [id], onDelete: Cascade)
-  campaigns        Campaign[]
-  storeLinks       AdvertiserStoreLink[]
-  dailyStats       AdDailyStat[]
+  organization   Organization?             @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  authorizations AdvertiserAuthorization[]
+  campaigns      Campaign[]
+  storeLinks     AdvertiserStoreLink[]
+  dailyStats     AdDailyStat[]
 
-  @@unique([organizationId, tiktokAdvertiserId])
+  @@index([organizationId])
 }
 
 model AdvertiserStoreLink {
@@ -402,24 +501,25 @@ model AdDailyStat {
 // ───────────── Daily rollups ─────────────
 
 model ShopDailyStat {
-  id              String   @id @default(cuid())
-  shopId          String
-  date            DateTime @db.Date
-  gmv             Decimal  @db.Decimal(18, 2)
-  orders          Int
-  unitsSold       Int
-  buyers          Int
-  newBuyers       Int
-  cancelledOrders Int
-  cancelledAmount Decimal  @db.Decimal(18, 2)
-  returnRequests  Int
-  refundAmount    Decimal  @db.Decimal(18, 2)
-  codOrders       Int
-  sellerDiscount  Decimal  @db.Decimal(18, 2)
-  pageViews       Int?
-  visitors        Int?
-  analyticsGmv    Decimal? @db.Decimal(18, 2)
-  computedAt      DateTime @default(now())
+  id                 String   @id @default(cuid())
+  shopId             String
+  date               DateTime @db.Date
+  gmv                Decimal  @db.Decimal(18, 2)
+  orders             Int
+  unitsSold          Int
+  buyers             Int
+  newBuyers          Int
+  cancelledOrders    Int
+  cancelledAmount    Decimal  @db.Decimal(18, 2)
+  returnRequests     Int
+  refundAmount       Decimal  @db.Decimal(18, 2)
+  codOrders          Int
+  sellerDiscount     Decimal  @db.Decimal(18, 2)
+  pageViews          Int?
+  visitors           Int?
+  analyticsGmv       Decimal? @db.Decimal(18, 2)
+  gmvMaxRevenueShare Decimal? @db.Decimal(5, 4)
+  computedAt         DateTime @default(now())
 
   shop Shop @relation(fields: [shopId], references: [id], onDelete: Cascade)
 
@@ -568,7 +668,7 @@ model ShopDailyPnl {
 
 model SyncState {
   id             String        @id @default(cuid())
-  organizationId String
+  organizationId String?
   scopeType      String
   scopeId        String
   resource       String
@@ -580,9 +680,26 @@ model SyncState {
   lastWarning    String?
   itemsLastRun   Int           @default(0)
 
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@unique([scopeType, scopeId, resource])
+}
+
+/// One synchronisation round of an organisation: orders + returns + ad reports pulled together (12 §4).
+model SyncRound {
+  id             String    @id @default(cuid())
+  organizationId String
+  startedAt      DateTime  @default(now())
+  finishedAt     DateTime?
+  shopOk         Boolean   @default(false)
+  adsOk          Boolean   @default(false)
+  shopSyncedTo   DateTime?
+  adsSyncedTo    DateTime?
+  error          String?
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, startedAt])
 }
 
 model WebhookEvent {
@@ -679,7 +796,34 @@ enum MemberRole {
   OWNER
   ADMIN
   MEMBER
-  VIEWER
+}
+
+enum PlatformRole {
+  SUPER_ADMIN
+  ADMIN
+  MOD
+}
+
+enum UserStatus {
+  ACTIVE
+  INVITED
+  DISABLED
+}
+
+enum AdsMode {
+  TIKTOK
+  NONE
+}
+
+enum AuthSource {
+  SELF_SIGNUP
+  APP_STORE
+  ADMIN_LINK
+}
+
+enum AdsAuthKind {
+  CLIENT
+  AGENCY_BC
 }
 
 enum MemberStatus {

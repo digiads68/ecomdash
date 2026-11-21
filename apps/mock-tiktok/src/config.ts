@@ -16,6 +16,7 @@ export interface MockConfig {
   webhookIntervalSec: number;
   faultRate: number;
   scale: number;
+  adsDelayMin: number;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): MockConfig {
@@ -35,5 +36,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): MockConfig {
     webhookIntervalSec: num(env.MOCK_WEBHOOK_INTERVAL_SEC, 30),
     faultRate: num(env.MOCK_FAULT_RATE, 0),
     scale: num(env.MOCK_SCALE, 1),
+    adsDelayMin: num(env.MOCK_ADS_DELAY_MIN, 0),
   };
 }

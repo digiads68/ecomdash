@@ -6,7 +6,7 @@ import { config } from "../config";
 import { shopClientFor } from "../tiktok/clients";
 import { QueueService } from "./queue.service";
 import { SyncStateService } from "./sync-state.service";
-import { mapCancellation, mapLineItems, mapOrder, mapProduct, mapReturn, mapSettlement, mapStatement } from "./mappers";
+import { mapCancellation, mapLineItems, mapOrder, mapProduct, mapReturn, mapSettlement, mapStatement, money } from "./mappers";
 
 const DAY = 86_400;
 const nowSec = () => Math.floor(Date.now() / 1000);
@@ -19,7 +19,7 @@ export class ShopSyncService {
     return prisma.shop.findUniqueOrThrow({ where: { id: shopId } });
   }
 
-  private scope(shop: { id: string; organizationId: string }, resource: string) {
+  private scope(shop: { id: string; organizationId: string | null }, resource: string) {
     return { organizationId: shop.organizationId, scopeType: "SHOP" as const, scopeId: shop.id, resource };
   }
 
@@ -164,7 +164,20 @@ export class ShopSyncService {
       for (const s of statements) {
         const data = mapStatement(s, shop.id);
         await prisma.statement.upsert({ where: { shopId_tiktokStatementId: { shopId: shop.id, tiktokStatementId: s.id } }, create: data, update: data });
-        for await (const page of client.iterateStatementTransactions(s.id)) {
+        const stmt = await prisma.statement.findUniqueOrThrow({ where: { shopId_tiktokStatementId: { shopId: shop.id, tiktokStatementId: s.id } }, select: { id: true } });
+        for await (const all of client.iterateStatementTransactions(s.id)) {
+          // Adjustments (e.g. GMV_PAYMENT_FOR_ADS = ads paid from the shop balance) are kept apart from order fees (12 §4).
+          for (const a of all) {
+            if (a.type !== "ADJUSTMENT") continue;
+            const amount = money(a.settlement_amount);
+            await prisma.statementAdjustment.upsert({
+              where: { statementId_type_reference: { statementId: stmt.id, type: a.adjustment_type, reference: a.adjustment_id } },
+              create: { statementId: stmt.id, type: a.adjustment_type, reference: a.adjustment_id, amount },
+              update: { amount },
+            });
+            items++;
+          }
+          const page = all.filter((t): t is Extract<typeof t, { order_id: string }> => t.type !== "ADJUSTMENT");
           const orders = await prisma.order.findMany({ where: { shopId: shop.id, tiktokOrderId: { in: page.map((t) => t.order_id) } }, select: { id: true, tiktokOrderId: true, businessDate: true } });
           const byTk = new Map(orders.map((o) => [o.tiktokOrderId, o]));
           const rows = page.filter((t) => byTk.has(t.order_id)).map((t) => {
@@ -193,7 +206,12 @@ export class ShopSyncService {
       const intervals = await client.getShopPerformance({ startDateGe: start, endDateLt: today });
       for (const i of intervals) {
         const date = dateOnly(i.start_date);
-        const vals = { pageViews: i.product_page_views, visitors: i.avg_product_page_visitors, analyticsGmv: Number(i.gmv.amount) };
+        const gmvMax = i.gmv_breakdowns?.find((b) => b.type === "GMV_MAX");
+        const total = Number(i.gmv.amount);
+        const vals = {
+          pageViews: i.product_page_views, visitors: i.avg_product_page_visitors, analyticsGmv: total,
+          ...(gmvMax && total > 0 ? { gmvMaxRevenueShare: Math.min(1, Number(gmvMax.amount) / total) } : {}),
+        };
         await prisma.shopDailyStat.upsert({
           where: { shopId_date: { shopId: shop.id, date } },
           create: { shopId: shop.id, date, gmv: 0, orders: 0, unitsSold: 0, buyers: 0, newBuyers: 0, cancelledOrders: 0, cancelledAmount: 0, returnRequests: 0, refundAmount: 0, codOrders: 0, sellerDiscount: 0, ...vals },

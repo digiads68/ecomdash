@@ -4,7 +4,7 @@ import { signShopRequest } from "./sign";
 import type {
   AuthorizedShop, Envelope, OrderSearchBody, OrderStatementTransaction, OrderStatementTransactionsData, PageOpts, ProductSearchBody, ReturnSearchBody,
   SearchPage, ShopCancellation, ShopOrder, ShopPerformanceInterval, ShopProductDetail, ShopProductPerformance, ShopProductSummary,
-  ShopReturn, ShopStatement, StatementQuery,
+  ShopReturn, ShopStatement, StatementQuery, StatementAdjustmentTransaction,
 } from "./types";
 
 export interface ShopClientOptions extends TransportOptions {
@@ -159,8 +159,8 @@ export class ShopClient {
   }
 
   /** Per-order transactions of one statement (01 §8 — "Transactions by Statement"; item shape [CHƯA XÁC MINH]). */
-  async getStatementTransactions(statementId: string, opts?: PageOpts): Promise<SearchPage<OrderStatementTransaction & { order_id: string }>> {
-    const d = await this.request<{ statement_transactions?: (OrderStatementTransaction & { order_id: string })[]; next_page_token?: string; total_count?: number }>(
+  async getStatementTransactions(statementId: string, opts?: PageOpts): Promise<SearchPage<StatementTx>> {
+    const d = await this.request<{ statement_transactions?: StatementTx[]; next_page_token?: string; total_count?: number }>(
       "GET", `/finance/202501/statements/${encodeURIComponent(statementId)}/statement_transactions`,
       { query: { page_size: opts?.pageSize ?? 100, page_token: opts?.pageToken, sort_field: "order_create_time" } });
     return { items: d.statement_transactions ?? [], nextPageToken: d.next_page_token ?? "", totalCount: d.total_count ?? 0 };
@@ -197,7 +197,7 @@ export class ShopClient {
 
   // ───── analytics ─────
   async getShopPerformance(q: { startDateGe: string; endDateLt: string; granularity?: "ALL" | "1D" }): Promise<ShopPerformanceInterval[]> {
-    const d = await this.request<{ performance?: { intervals?: ShopPerformanceInterval[] } }>("GET", "/analytics/202405/shop/performance", {
+    const d = await this.request<{ performance?: { intervals?: ShopPerformanceInterval[] } }>("GET", "/analytics/202509/shop/performance", {
       query: { start_date_ge: q.startDateGe, end_date_lt: q.endDateLt, granularity: q.granularity ?? "1D", currency: "LOCAL" },
     });
     return d.performance?.intervals ?? [];
@@ -216,5 +216,8 @@ export class ShopClient {
     return out;
   }
 }
+
+/** Statement line: an order settlement, or an adjustment such as GMV_PAYMENT_FOR_ADS. */
+export type StatementTx = (OrderStatementTransaction & { type?: "ORDER"; order_id: string }) | StatementAdjustmentTransaction;
 
 export { TikTokApiError };

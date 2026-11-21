@@ -1,8 +1,9 @@
 import { Controller, Get, Module, NotFoundException, Param, Query } from "@nestjs/common";
 import { prisma, Prisma } from "@ecomdash/database";
 import { dateOnly, OrderDetailDto, OrderListDto, ORDER_STATUS_GROUP, STATUSES_BY_GROUP, UiStatusGroup, ymd } from "@ecomdash/shared";
-import { OrgId } from "../common/decorators";
-import { getShopForOrg, n, pageParams, parsePeriod } from "../common/util";
+import { Access, canViewShop } from "../access/access";
+import { Acc } from "../common/decorators";
+import { getShopForUser, n, pageParams, parsePeriod } from "../common/util";
 import { econRow } from "../pnl/pnl.service";
 
 const GROUPS: UiStatusGroup[] = ["PENDING_PAYMENT", "TO_SHIP", "SHIPPING", "DELIVERED", "CANCELLED"];
@@ -10,8 +11,8 @@ const GROUPS: UiStatusGroup[] = ["PENDING_PAYMENT", "TO_SHIP", "SHIPPING", "DELI
 @Controller("orders")
 class OrdersController {
   @Get()
-  async list(@OrgId() orgId: string, @Query() q: { shopId: string; from?: string; to?: string; status?: string; q?: string; cod?: string; page?: string; pageSize?: string }): Promise<OrderListDto> {
-    const shop = await getShopForOrg(orgId, q.shopId);
+  async list(@Acc() access: Access, @Query() q: { shopId: string; from?: string; to?: string; status?: string; q?: string; cod?: string; page?: string; pageSize?: string }): Promise<OrderListDto> {
+    const shop = await getShopForUser(access, q.shopId);
     const p = parsePeriod(q.from, q.to, shop.timezone);
     const base: Prisma.OrderWhereInput = {
       shopId: shop.id, businessDate: { gte: dateOnly(p.from), lte: dateOnly(p.to) },
@@ -40,9 +41,9 @@ class OrdersController {
   }
 
   @Get(":id")
-  async detail(@OrgId() orgId: string, @Param("id") id: string): Promise<OrderDetailDto> {
-    const o = await prisma.order.findFirst({ where: { id, shop: { organizationId: orgId } }, include: { lineItems: true, settlement: true, economics: true, returns: true, shop: true } });
-    if (!o) throw new NotFoundException();
+  async detail(@Acc() access: Access, @Param("id") id: string): Promise<OrderDetailDto> {
+    const o = await prisma.order.findUnique({ where: { id }, include: { lineItems: true, settlement: true, economics: true, returns: true, shop: true } });
+    if (!o || !canViewShop(access, o.shop)) throw new NotFoundException();
     const skus = await prisma.sku.findMany({ where: { tiktokSkuId: { in: o.lineItems.map((l) => l.tiktokSkuId) }, product: { shopId: o.shopId } }, include: { costs: { where: { effectiveFrom: { lte: o.businessDate } }, orderBy: { effectiveFrom: "desc" }, take: 1 } } });
     const costOf = new Map(skus.map((s) => [s.tiktokSkuId, s.costs[0] ? n(s.costs[0].unitCost) : null]));
     const grouped = new Map<string, OrderDetailDto["lines"][number]>();

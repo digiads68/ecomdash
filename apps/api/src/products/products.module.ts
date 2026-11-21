@@ -1,14 +1,15 @@
 import { Controller, Get, Module, Query } from "@nestjs/common";
 import { prisma } from "@ecomdash/database";
 import { dateOnly, ProductRowDto } from "@ecomdash/shared";
-import { OrgId } from "../common/decorators";
-import { div, getShopForOrg, n, parsePeriod } from "../common/util";
+import type { Access } from "../access/access";
+import { Acc } from "../common/decorators";
+import { div, getShopForUser, n, parsePeriod } from "../common/util";
 
 @Controller("products")
 class ProductsController {
   @Get()
-  async list(@OrgId() orgId: string, @Query() q: { shopId: string; from?: string; to?: string; sort?: string; status?: string; q?: string }): Promise<ProductRowDto[]> {
-    const shop = await getShopForOrg(orgId, q.shopId);
+  async list(@Acc() access: Access, @Query() q: { shopId: string; from?: string; to?: string; sort?: string; status?: string; q?: string }): Promise<ProductRowDto[]> {
+    const shop = await getShopForUser(access, q.shopId);
     const p = parsePeriod(q.from, q.to, shop.timezone);
     const agg = (from: string, to: string) => prisma.productDailyStat.groupBy({
       by: ["productId"], where: { shopId: shop.id, date: { gte: dateOnly(from), lte: dateOnly(to) } }, _sum: { gmv: true, unitsSold: true, orders: true, pageViews: true },

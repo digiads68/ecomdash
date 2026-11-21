@@ -2,7 +2,7 @@ import { Injectable, Logger } from "@nestjs/common";
 import { prisma } from "@ecomdash/database";
 import { RateLimitError, ScopeError, TikTokApiError, TokenExpiredError, TransientError } from "@ecomdash/tiktok-client";
 
-export type Scope = { organizationId: string; scopeType: "SHOP" | "ADVERTISER"; scopeId: string; resource: string };
+export type Scope = { organizationId: string | null; scopeType: "SHOP" | "ADVERTISER"; scopeId: string; resource: string };
 
 /** Wraps a sync run: RUNNING lock, cursor, outcome and error classification (04 §4). */
 @Injectable()

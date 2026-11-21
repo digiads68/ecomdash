@@ -6,14 +6,30 @@ export interface CampaignW {
   id: string; name: string; kind: "MANUAL" | "GMV_MAX"; budget: number; budgetMode: "BUDGET_MODE_DAY" | "BUDGET_MODE_TOTAL";
   roas: number; roasBid?: number; storeId?: string; activeFrom?: string; activeTo?: string; disabledLastDays?: number; shoppingType: string;
 }
-export interface AdvertiserW { id: string; name: string; currency: string; timezone: string; bcId: string; stores: StoreW[]; campaigns: CampaignW[] }
+export interface AdvertiserW { id: string; name: string; currency: string; timezone: string; bcId: string; seller: string; stores: StoreW[]; campaigns: CampaignW[] }
+
+/** Who can grant an ads token: a seller's own Business Center, or the DigiAds agency BC that clients shared accounts into. */
+export const DIGIADS_BC = "7300009999000001";
+export const ADS_PRINCIPALS = [
+  { id: "hoasen", label: "Business Center: Hoa Sen Group", kind: "CLIENT" },
+  { id: "may", label: "Tài khoản quảng cáo: Thời Trang Mây", kind: "CLIENT" },
+  { id: "bin", label: "Tài khoản quảng cáo: Đồ Chơi Bin", kind: "CLIENT" },
+  { id: "digiads", label: "Business Center: DigiAds (agency)", kind: "AGENCY" },
+] as const;
+
+/** Advertisers visible to a principal; the DigiAds BC sees the accounts shared with it. */
+export function advertisersFor(all: AdvertiserW[], principal: string): AdvertiserW[] {
+  if (principal === "digiads") return all.filter((a) => a.bcId === DIGIADS_BC || SHARED_WITH_DIGIADS.has(a.id));
+  return all.filter((a) => a.seller === principal);
+}
+const SHARED_WITH_DIGIADS = new Set(["7301122334455667788"]);
 
 export function buildAdvertisers(world: World): AdvertiserW[] {
-  const [s0, s1] = world.shops;
+  const [s0, s1, s2, s3] = world.shops;
   const year = vnDate(world.bootTime).slice(0, 4);
   return [
     {
-      id: "7301122334455667788", name: "Hoa Sen Beauty — Ads", currency: "VND", timezone: "Asia/Ho_Chi_Minh", bcId: "7300001111222233",
+      id: "7301122334455667788", name: "Hoa Sen Beauty — Ads", currency: "VND", timezone: "Asia/Ho_Chi_Minh", bcId: "7300001111222233", seller: "hoasen",
       stores: [{ storeId: s0.id, storeName: s0.name, storeCode: s0.code, gmvMax: true, shopIdx: 0 }],
       campaigns: [
         { id: "1780011000000000001", name: "Serum C – Video Shopping", kind: "MANUAL", budget: 1_800_000, budgetMode: "BUDGET_MODE_DAY", roas: 4.6, shoppingType: "VIDEO" },
@@ -27,7 +43,7 @@ export function buildAdvertisers(world: World): AdvertiserW[] {
       ],
     },
     {
-      id: "7301199887766554433", name: "Hoa Sen Home — Ads", currency: "VND", timezone: "Asia/Ho_Chi_Minh", bcId: "7300001111222233",
+      id: "7301199887766554433", name: "Hoa Sen Home — Ads", currency: "VND", timezone: "Asia/Ho_Chi_Minh", bcId: "7300001111222233", seller: "hoasen",
       stores: [
         { storeId: "8800112233445566", storeName: s1.name, storeCode: s1.code, gmvMax: true, shopIdx: 1 },
         { storeId: "7495000011112222", storeName: "HS Outlet", storeCode: "VNLCOUT001", gmvMax: false, shopIdx: null },
@@ -39,6 +55,23 @@ export function buildAdvertisers(world: World): AdvertiserW[] {
         { id: "1780022000000000101", name: "GMV Max – Gia dụng", kind: "GMV_MAX", budget: 900_000, budgetMode: "BUDGET_MODE_DAY", roas: 4.2, roasBid: 4, storeId: "8800112233445566", shoppingType: "PRODUCT" },
       ],
     },
+    {
+      id: "7301255500011122233", name: "Thời Trang Mây — Ads", currency: "VND", timezone: "Asia/Ho_Chi_Minh", bcId: DIGIADS_BC, seller: "may",
+      stores: [{ storeId: s2.id, storeName: s2.name, storeCode: s2.code, gmvMax: true, shopIdx: 2 }],
+      campaigns: [
+        { id: "1780033000000000001", name: "Đầm hoa – Video", kind: "MANUAL", budget: 700_000, budgetMode: "BUDGET_MODE_DAY", roas: 3.6, shoppingType: "VIDEO" },
+        { id: "1780033000000000002", name: "Áo sơ mi – LIVE", kind: "MANUAL", budget: 500_000, budgetMode: "BUDGET_MODE_DAY", roas: 2.4, shoppingType: "LIVE" },
+        { id: "1780033000000000101", name: "GMV Max – Thời trang", kind: "GMV_MAX", budget: 1_200_000, budgetMode: "BUDGET_MODE_DAY", roas: 4.8, roasBid: 4.5, storeId: s2.id, shoppingType: "PRODUCT" },
+      ],
+    },
+    {
+      id: "7301277700033344455", name: "Đồ Chơi Bin — Ads", currency: "VND", timezone: "Asia/Ho_Chi_Minh", bcId: DIGIADS_BC, seller: "bin",
+      stores: [{ storeId: s3.id, storeName: s3.name, storeCode: s3.code, gmvMax: true, shopIdx: 3 }],
+      campaigns: [
+        { id: "1780044000000000001", name: "Xếp hình nam châm – Video", kind: "MANUAL", budget: 400_000, budgetMode: "BUDGET_MODE_DAY", roas: 3.1, shoppingType: "VIDEO" },
+        { id: "1780044000000000101", name: "GMV Max – Đồ chơi", kind: "GMV_MAX", budget: 500_000, budgetMode: "BUDGET_MODE_DAY", roas: 4.0, roasBid: 3.8, storeId: s3.id, shoppingType: "PRODUCT" },
+      ],
+    },
   ];
 }
 
@@ -46,7 +79,8 @@ export interface DayStat { spend: number; impressions: number; clicks: number; c
 
 /** Deterministic per campaign-day; the last 3 days drift slightly between calls (late attribution). */
 export function campaignDay(world: World, c: CampaignW, ymd: string): DayStat | null {
-  const now = world.now();
+  // MOCK_ADS_DELAY_MIN: the Ads API lags behind the Shop API (12 §4 — tests the "ads are late" banner).
+  const now = world.now() - world.config.adsDelayMin * 60;
   const today = vnDate(now);
   if (ymd > today || vnMidnight(ymd) < world.startTime) return null;
   if (c.activeFrom && ymd < c.activeFrom) return null;

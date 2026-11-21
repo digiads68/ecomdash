@@ -1,14 +1,15 @@
 import { Controller, Get, Module, Query } from "@nestjs/common";
 import { prisma } from "@ecomdash/database";
 import { CustomersSummaryDto, dateOnly } from "@ecomdash/shared";
-import { OrgId } from "../common/decorators";
-import { div, getShopForOrg, kpi, parsePeriod } from "../common/util";
+import type { Access } from "../access/access";
+import { Acc } from "../common/decorators";
+import { div, getShopForUser, kpi, parsePeriod } from "../common/util";
 
 @Controller("customers")
 class CustomersController {
   @Get("summary")
-  async summary(@OrgId() orgId: string, @Query() q: { shopId: string; from?: string; to?: string }): Promise<CustomersSummaryDto> {
-    const shop = await getShopForOrg(orgId, q.shopId);
+  async summary(@Acc() access: Access, @Query() q: { shopId: string; from?: string; to?: string }): Promise<CustomersSummaryDto> {
+    const shop = await getShopForUser(access, q.shopId);
     const p = parsePeriod(q.from, q.to, shop.timezone);
     const counts = async (from: string, to: string) => {
       const r = await prisma.$queryRaw<{ buyers: number; new_buyers: number; orders: number }[]>`

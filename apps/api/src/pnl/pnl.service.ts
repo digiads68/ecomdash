@@ -1,10 +1,11 @@
+import type { Access } from "../access/access";
 import { Injectable } from "@nestjs/common";
 import { prisma, Prisma } from "@ecomdash/database";
 import {
-  buildWaterfall, CostRowDto, DailyPnl, dateOnly, OrderOutcome, PnlDailyRowDto, PnlOrderRowDto, PnlProductRowDto, PnlSummaryDto,
-  PnlTotals, roasMetrics, successEquivalent, sumDays, ymd,
+  addDays, buildWaterfall, CostRowDto, DailyPnl, dateOnly, OrderOutcome, PnlDailyRowDto, PnlOrderRowDto, PnlProductRowDto, PnlSummaryDto,
+  PnlTotals, roasMetrics, successEquivalent, sumDays, toBusinessDate, ymd,
 } from "@ecomdash/shared";
-import { div, getShopForOrg, kpi, n, pageParams, parsePeriod } from "../common/util";
+import { div, getShopForUser, kpi, n, pageParams, parsePeriod } from "../common/util";
 
 type PnlRow = Prisma.ShopDailyPnlGetPayload<object>;
 
@@ -40,8 +41,8 @@ export class PnlService {
     return { days, totals: sumDays(days) };
   }
 
-  async summary(orgId: string, shopId: string, qFrom?: string, qTo?: string): Promise<PnlSummaryDto> {
-    const shop = await getShopForOrg(orgId, shopId);
+  async summary(access: Access, shopId: string, qFrom?: string, qTo?: string): Promise<PnlSummaryDto> {
+    const shop = await getShopForUser(access, shopId);
     const p = parsePeriod(qFrom, qTo, shop.timezone);
     const [{ totals: t }, { totals: tp }] = await Promise.all([this.totals(shop.id, p.from, p.to), this.totals(shop.id, p.prevFrom, p.prevTo)]);
     const eq = successEquivalent(t, successRateOf(t));
@@ -90,6 +91,7 @@ export class PnlService {
     row("ads_manual", "Quảng cáo Shop Ads thủ công", "ADS", t.adSpendManual, false);
     row("ads_gmvmax", "Quảng cáo GMV Max", "ADS", t.adSpendGmvMax, false);
 
+    const shopAds = await this.shopAdSignals(shop.id, p.from, p.to);
     return {
       period: { from: p.from, to: p.to, settledShare: t.grossItemValue > 0 ? 1 - t.pendingAmount / t.grossItemValue : null },
       orders: {
@@ -128,9 +130,33 @@ export class PnlService {
         unsettledOrders: unsettled,
         feesEstimatedShare: div(t.feesEstimated, t.platformFees + t.otherPlatformFees),
         cogsEstimatedShare: div(t.cogsEstimated, t.cogs),
+        shopGmvMaxAdFee: shopAds.shopGmvMaxAdFee, adsPaidFromBalance: shopAds.adsPaidFromBalance, gmvMaxRevenueShare: shopAds.gmvMaxRevenueShare,
+        gmvMaxFeeGap: shopAds.gap,
       },
       syncedAt: sync?.lastSuccessAt?.toISOString() ?? null,
     };
+  }
+
+  /** GMV Max fees on orders, ads paid from the shop balance (statements in period), and GMV Max revenue share. */
+  async shopAdSignals(shopId: string, from: string, to: string) {
+    const r = await prisma.$queryRaw<{ fee: number; paid: number; share: number | null }[]>`
+      SELECT
+        (SELECT COALESCE(SUM(s."gmvMaxAdFee"),0)::float FROM "OrderSettlement" s JOIN "Order" o ON o.id = s."orderId"
+           WHERE o."shopId" = ${shopId} AND o."businessDate" BETWEEN ${dateOnly(from)} AND ${dateOnly(to)}) AS fee,
+        (SELECT COALESCE(SUM(ABS(a.amount)),0)::float FROM "StatementAdjustment" a JOIN "Statement" st ON st.id = a."statementId"
+           WHERE st."shopId" = ${shopId} AND a.type = 'GMV_PAYMENT_FOR_ADS' AND st."statementTime" >= ${dateOnly(from)} AND st."statementTime" < ${dateOnly(addDays(to, 1))}) AS paid,
+        (SELECT (SUM("gmvMaxRevenueShare" * "analyticsGmv") / NULLIF(SUM(CASE WHEN "gmvMaxRevenueShare" IS NOT NULL THEN "analyticsGmv" END),0))::float
+           FROM "ShopDailyStat" WHERE "shopId" = ${shopId} AND date BETWEEN ${dateOnly(from)} AND ${dateOnly(to)}) AS share`;
+    const x = r[0] ?? { fee: 0, paid: 0, share: null };
+    // Cross-check only on days old enough to be settled: GMV Max fees per order vs. GMV Max spend from the Ads API.
+    const settledTo = addDays(toBusinessDate(new Date()), -14) < to ? addDays(toBusinessDate(new Date()), -14) : to;
+    const g = settledTo < from ? [] : await prisma.$queryRaw<{ fee: number; spend: number }[]>`
+      SELECT
+        (SELECT COALESCE(SUM(s."gmvMaxAdFee"),0)::float FROM "OrderSettlement" s JOIN "Order" o ON o.id = s."orderId"
+           WHERE o."shopId" = ${shopId} AND o."businessDate" BETWEEN ${dateOnly(from)} AND ${dateOnly(settledTo)}) AS fee,
+        (SELECT COALESCE(SUM("adSpendGmvMax"),0)::float FROM "ShopDailyPnl" WHERE "shopId" = ${shopId} AND date BETWEEN ${dateOnly(from)} AND ${dateOnly(settledTo)}) AS spend`;
+    const gap = g[0] && g[0].fee > 0 && g[0].spend > 0 ? Math.abs(g[0].fee - g[0].spend) / g[0].spend : null;
+    return { shopGmvMaxAdFee: x.fee, adsPaidFromBalance: x.paid, gmvMaxRevenueShare: x.share, gap };
   }
 
   /** SKUs without any cost row and their share of item value sold in the period. */
@@ -149,8 +175,8 @@ export class PnlService {
     return { count: x.count, share: div(x.missing, x.total) };
   }
 
-  async daily(orgId: string, shopId: string, qFrom?: string, qTo?: string): Promise<PnlDailyRowDto[]> {
-    const shop = await getShopForOrg(orgId, shopId);
+  async daily(access: Access, shopId: string, qFrom?: string, qTo?: string): Promise<PnlDailyRowDto[]> {
+    const shop = await getShopForUser(access, shopId);
     const p = parsePeriod(qFrom, qTo, shop.timezone);
     const days = await this.loadDays(shop.id, p.from, p.to);
     return days.map((d) => {
@@ -163,8 +189,8 @@ export class PnlService {
     });
   }
 
-  async products(orgId: string, shopId: string, qFrom?: string, qTo?: string, sort = "netProfit:asc"): Promise<PnlProductRowDto[]> {
-    const shop = await getShopForOrg(orgId, shopId);
+  async products(access: Access, shopId: string, qFrom?: string, qTo?: string, sort = "netProfit:asc"): Promise<PnlProductRowDto[]> {
+    const shop = await getShopForUser(access, shopId);
     const p = parsePeriod(qFrom, qTo, shop.timezone);
     const g = await prisma.productDailyStat.groupBy({
       by: ["productId"],
@@ -190,8 +216,8 @@ export class PnlService {
     return rows;
   }
 
-  async orders(orgId: string, shopId: string, q: { from?: string; to?: string; outcome?: string; page?: string; pageSize?: string }) {
-    const shop = await getShopForOrg(orgId, shopId);
+  async orders(access: Access, shopId: string, q: { from?: string; to?: string; outcome?: string; page?: string; pageSize?: string }) {
+    const shop = await getShopForUser(access, shopId);
     const p = parsePeriod(q.from, q.to, shop.timezone);
     const { page, pageSize, skip, take } = pageParams(q.page, q.pageSize);
     const where: Prisma.OrderEconomicsWhereInput = { shopId: shop.id, businessDate: { gte: dateOnly(p.from), lte: dateOnly(p.to) }, ...(q.outcome ? { outcome: q.outcome as OrderOutcome } : {}) };

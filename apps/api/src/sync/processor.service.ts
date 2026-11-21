@@ -10,6 +10,7 @@ import { ReportsSender } from "../reports/reports.sender";
 import { AdsSyncService } from "./ads-sync.service";
 import { QueueService, SYNC_QUEUE } from "./queue.service";
 import { ShopSyncService } from "./shop-sync.service";
+import { OrgRoundService } from "./org-round.service";
 
 @Injectable()
 export class ProcessorService implements OnModuleInit, OnModuleDestroy {
@@ -23,6 +24,7 @@ export class ProcessorService implements OnModuleInit, OnModuleDestroy {
     private readonly pnl: PnlComputeService,
     private readonly alerts: AlertsEvaluator,
     private readonly reports: ReportsSender,
+    private readonly rounds: OrgRoundService,
   ) {}
 
   onModuleInit() {
@@ -37,10 +39,17 @@ export class ProcessorService implements OnModuleInit, OnModuleDestroy {
   }
 
   async handle(job: Job): Promise<unknown> {
-    const d = job.data as { shopId?: string; advertiserId?: string; ids?: string[]; days?: number };
+    const d = job.data as { shopId?: string; advertiserId?: string; orgId?: string; ids?: string[]; days?: number };
     if (d.shopId && !(await prisma.shop.findFirst({ where: { id: d.shopId, isActive: true } }))) return "shop inactive";
     switch (job.name) {
-      case "shop.backfill": return this.shops.backfill(d.shopId!);
+      case "org.round": return this.rounds.run(d.orgId!);
+      case "shop.backfill": {
+        await this.shops.backfill(d.shopId!);
+        // First common watermark right after the backfill, instead of waiting for the first scheduled round.
+        const shop = await prisma.shop.findUnique({ where: { id: d.shopId! }, select: { organizationId: true } });
+        if (shop?.organizationId) await this.queue.enqueue("org.round", { orgId: shop.organizationId }, { delay: 60_000 });
+        return;
+      }
       case "shop.orders": return this.shops.orders(d.shopId!);
       case "shop.orders.ids": return this.shops.ordersByIds(d.shopId!, d.ids ?? []);
       case "shop.products": return this.shops.products(d.shopId!);

@@ -1,16 +1,17 @@
 import { Controller, Get, Module, Query } from "@nestjs/common";
 import { prisma, Prisma } from "@ecomdash/database";
 import { dateOnly, eachDate, Paged, ReturnRowDto, ReturnsSummaryDto, ymd } from "@ecomdash/shared";
-import { OrgId } from "../common/decorators";
-import { div, getShopForOrg, kpi, n, pageParams, parsePeriod } from "../common/util";
+import type { Access } from "../access/access";
+import { Acc } from "../common/decorators";
+import { div, getShopForUser, kpi, n, pageParams, parsePeriod } from "../common/util";
 
 const OPEN = ["RETURN_OR_REFUND_REQUEST_PENDING", "AWAITING_BUYER_SHIP", "BUYER_SHIPPED_ITEM", "AWAITING_BUYER_RESPONSE"];
 
 @Controller("returns")
 class ReturnsController {
   @Get("summary")
-  async summary(@OrgId() orgId: string, @Query() q: { shopId: string; from?: string; to?: string }): Promise<ReturnsSummaryDto> {
-    const shop = await getShopForOrg(orgId, q.shopId);
+  async summary(@Acc() access: Access, @Query() q: { shopId: string; from?: string; to?: string }): Promise<ReturnsSummaryDto> {
+    const shop = await getShopForUser(access, q.shopId);
     const p = parsePeriod(q.from, q.to, shop.timezone);
     const stat = (from: string, to: string) => prisma.shopDailyPnl.aggregate({
       where: { shopId: shop.id, date: { gte: dateOnly(from), lte: dateOnly(to) } },
@@ -38,8 +39,8 @@ class ReturnsController {
   }
 
   @Get()
-  async list(@OrgId() orgId: string, @Query() q: { shopId: string; from?: string; to?: string; kind?: string; status?: string; page?: string; pageSize?: string }): Promise<Paged<ReturnRowDto>> {
-    const shop = await getShopForOrg(orgId, q.shopId);
+  async list(@Acc() access: Access, @Query() q: { shopId: string; from?: string; to?: string; kind?: string; status?: string; page?: string; pageSize?: string }): Promise<Paged<ReturnRowDto>> {
+    const shop = await getShopForUser(access, q.shopId);
     const p = parsePeriod(q.from, q.to, shop.timezone);
     const { page, pageSize, skip, take } = pageParams(q.page, q.pageSize);
     const where: Prisma.ReturnRequestWhereInput = {

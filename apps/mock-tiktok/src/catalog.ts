@@ -51,6 +51,26 @@ export const HOME: ProductDef[] = [
   { title: "Bàn Chải Vệ Sinh Khe Hẹp (5 cái)", category: "Vệ sinh", skus: v(["Bộ 5"], 49_000), color: "#8b5cf6" },
 ];
 
+export const FASHION: ProductDef[] = [
+  { title: "Áo Sơ Mi Lụa Tay Dài Công Sở", category: "Áo nữ", skus: v(["S", "M", "L"], 289_000, 0), color: "#0ea5e9" },
+  { title: "Chân Váy Midi Xếp Ly", category: "Váy", skus: v(["S", "M"], 259_000, 0), color: "#ec4899" },
+  { title: "Quần Ống Rộng Vải Đũi", category: "Quần nữ", skus: v(["M", "L"], 229_000, 0), color: "#84cc16" },
+  { title: "Đầm Hoa Nhí Cổ Vuông", category: "Đầm", skus: v(["S", "M", "L"], 349_000, 0), color: "#f97316" },
+  { title: "Áo Thun Basic Cotton 100%", category: "Áo nữ", skus: v(["Trắng", "Đen", "Be"], 129_000, 0), color: "#6366f1" },
+  { title: "Áo Khoác Cardigan Len Mỏng", category: "Áo khoác", skus: v(["Free size"], 299_000), color: "#14b8a6" },
+  { title: "Túi Tote Vải Canvas", category: "Phụ kiện", skus: v(["Kem", "Đen"], 149_000, 0), color: "#f59e0b" },
+  { title: "Set Bộ Mặc Nhà Linen", category: "Đồ bộ", skus: v(["M", "L"], 319_000, 0), color: "#8b5cf6" },
+];
+
+export const TOYS: ProductDef[] = [
+  { title: "Bộ Xếp Hình Nam Châm 64 Chi Tiết", category: "Đồ chơi trí tuệ", skus: v(["64 chi tiết", "100 chi tiết"], 359_000, 150_000), color: "#f97316" },
+  { title: "Xe Ô Tô Điều Khiển Địa Hình", category: "Xe điều khiển", skus: v(["Đỏ", "Xanh"], 429_000, 0), color: "#ef4444" },
+  { title: "Bảng Vẽ Điện Tử LCD 10 Inch", category: "Đồ dùng học tập", skus: v(["Xanh", "Hồng"], 119_000, 0), color: "#10b981" },
+  { title: "Gấu Bông Thỏ Tai Dài 50cm", category: "Thú bông", skus: v(["50cm"], 189_000), color: "#ec4899" },
+  { title: "Bộ Đồ Chơi Nấu Ăn Gỗ", category: "Đồ chơi nhập vai", skus: v(["Bộ 22 món"], 279_000), color: "#a16207" },
+  { title: "Slime Mây Bông 6 Màu", category: "Đồ chơi sáng tạo", skus: v(["Hộp 6"], 79_000), color: "#8b5cf6" },
+];
+
 export const PROVINCES: [string, number][] = [
   ["Thành phố Hồ Chí Minh", 28], ["Hà Nội", 22], ["Bình Dương", 8], ["Đồng Nai", 6], ["Đà Nẵng", 5], ["Hải Phòng", 4.5],
   ["Cần Thơ", 4], ["Khánh Hòa", 3], ["Nghệ An", 3], ["Thanh Hóa", 3], ["Bà Rịa - Vũng Tàu", 2.5], ["Quảng Ninh", 2.5],

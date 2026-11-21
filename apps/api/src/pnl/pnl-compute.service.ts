@@ -51,7 +51,7 @@ export class PnlComputeService {
     const feeAgg = await prisma.$queryRaw<{ rev: number; com: number; trx: number; aff: number; inf: number; settle: number }[]>`
       SELECT COALESCE(SUM(s."revenueAmount"),0)::float rev, COALESCE(SUM(s."platformCommission"),0)::float com,
              COALESCE(SUM(s."transactionFee"),0)::float trx, COALESCE(SUM(s."affiliateCommission"),0)::float aff,
-             COALESCE(SUM(s."infrastructureFee"),0)::float inf, COALESCE(SUM(s."settlementAmount"),0)::float settle
+             COALESCE(SUM(s."infrastructureFee"),0)::float inf, COALESCE(SUM(s."settlementAmount" + s."gmvMaxAdFee"),0)::float settle
       FROM "OrderSettlement" s JOIN "Order" o ON o.id = s."orderId"
       WHERE o."shopId" = ${shopId} AND o."businessDate" >= ${dateOnly(addDays(to, -75))} AND s."revenueAmount" > 0`;
     const fa = feeAgg[0];
@@ -90,7 +90,8 @@ export class PnlComputeService {
         shipped: !!o.rtsTime,
         settlement: s ? {
           feeParts: { commission: n(s.platformCommission), transaction: n(s.transactionFee), affiliate: n(s.affiliateCommission), infrastructure: n(s.infrastructureFee) },
-          settlementAmount: n(s.settlementAmount),
+          // GMV Max fees deducted from the payout are ad spend (counted from the Ads API), not a platform fee.
+          settlementAmount: n(s.settlementAmount) + n(s.gmvMaxAdFee),
         } : null,
         rates,
         perOrderCosts: items.filter((i) => i.method === "PER_ORDER" && activeOn(i, date)).map((i) => ({ id: i.id, amount: n(i.amount), appliesTo: i.appliesTo })),
@@ -110,7 +111,7 @@ export class PnlComputeService {
     } else rates.cogs = defaultPct;
 
     // ── ads allocated to this shop (11 §6) ──
-    const links = await prisma.advertiserStoreLink.findMany({ where: { advertiser: { organizationId: shop.organizationId }, shopId: { not: null } } });
+    const links = shop.organizationId ? await prisma.advertiserStoreLink.findMany({ where: { advertiser: { organizationId: shop.organizationId }, shopId: { not: null } } }) : [];
     const shopsOfAdv = new Map<string, string[]>();
     for (const l of links) shopsOfAdv.set(l.advertiserId, [...new Set([...(shopsOfAdv.get(l.advertiserId) ?? []), l.shopId!])]);
     const advIds = [...shopsOfAdv.entries()].filter(([, s]) => s.includes(shopId)).map(([a]) => a);

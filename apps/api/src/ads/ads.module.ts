@@ -3,8 +3,9 @@ import { prisma } from "@ecomdash/database";
 import {
   AdsOverviewDto, adAllocationShares, AdStatus, CampaignRowDto, dateOnly, daysInMonth, roasMetrics, successEquivalent, sumDays, toBusinessDate,
 } from "@ecomdash/shared";
-import { OrgId } from "../common/decorators";
-import { div, getShopForOrg, kpi, n, parsePeriod } from "../common/util";
+import type { Access } from "../access/access";
+import { Acc } from "../common/decorators";
+import { div, getShopForUser, kpi, n, parsePeriod } from "../common/util";
 import { PnlModule } from "../pnl/pnl.module";
 import { PnlService } from "../pnl/pnl.service";
 
@@ -12,7 +13,7 @@ const status = (real: number | null, be: number | null, spend: number): AdStatus
   spend <= 0 ? "NO_SPEND" : real == null || be == null ? "LOSS" : real >= be * 1.2 ? "PROFIT" : real >= be ? "NEAR_BREAKEVEN" : "LOSS";
 
 /** Campaign stats of advertisers linked to the shop, scaled by the shop's share (11 §6). */
-async function scopedStats(orgId: string, shopId: string, from: string, to: string) {
+async function scopedStats(orgId: string | null, shopId: string, from: string, to: string) {
   const links = await prisma.advertiserStoreLink.findMany({ where: { advertiser: { organizationId: orgId }, shopId: { not: null } } });
   const shopsOf = new Map<string, Set<string>>();
   for (const l of links) shopsOf.set(l.advertiserId, (shopsOf.get(l.advertiserId) ?? new Set()).add(l.shopId!));
@@ -40,12 +41,12 @@ class AdsController {
   constructor(private readonly pnl: PnlService) {}
 
   @Get("overview")
-  async overview(@OrgId() orgId: string, @Query() q: { shopId: string; from?: string; to?: string }): Promise<AdsOverviewDto> {
-    const shop = await getShopForOrg(orgId, q.shopId);
+  async overview(@Acc() access: Access, @Query() q: { shopId: string; from?: string; to?: string }): Promise<AdsOverviewDto> {
+    const shop = await getShopForUser(access, q.shopId);
     const p = parsePeriod(q.from, q.to, shop.timezone);
     const [cur, prev, sc, scPrev] = await Promise.all([
       this.pnl.totals(shop.id, p.from, p.to), this.pnl.totals(shop.id, p.prevFrom, p.prevTo),
-      scopedStats(orgId, shop.id, p.from, p.to), scopedStats(orgId, shop.id, p.prevFrom, p.prevTo),
+      scopedStats(shop.organizationId, shop.id, p.from, p.to), scopedStats(shop.organizationId, shop.id, p.prevFrom, p.prevTo),
     ]);
     const t = cur.totals, tp = prev.totals;
     const r = roasMetrics(t), rp = roasMetrics(tp);
@@ -84,10 +85,10 @@ class AdsController {
   }
 
   @Get("campaigns")
-  async campaigns(@OrgId() orgId: string, @Query() q: { shopId: string; from?: string; to?: string; kind?: "MANUAL" | "GMV_MAX" }): Promise<CampaignRowDto[]> {
-    const shop = await getShopForOrg(orgId, q.shopId);
+  async campaigns(@Acc() access: Access, @Query() q: { shopId: string; from?: string; to?: string; kind?: "MANUAL" | "GMV_MAX" }): Promise<CampaignRowDto[]> {
+    const shop = await getShopForUser(access, q.shopId);
     const p = parsePeriod(q.from, q.to, shop.timezone);
-    const [{ totals: t }, sc] = await Promise.all([this.pnl.totals(shop.id, p.from, p.to), scopedStats(orgId, shop.id, p.from, p.to)]);
+    const [{ totals: t }, sc] = await Promise.all([this.pnl.totals(shop.id, p.from, p.to), scopedStats(shop.organizationId, shop.id, p.from, p.to)]);
     const r = roasMetrics(t);
     const by = new Map<string, { spend: number; imp: number; clk: number; orders: number; rev: number }>();
     for (const s of sc.stats) {

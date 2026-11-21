@@ -1,4 +1,4 @@
-import { BEAUTY, CANCEL_REASONS, CARRIERS, HOME, ProductDef, PROVINCES, RETURN_REASONS, thumbDataUri } from "./catalog";
+import { BEAUTY, CANCEL_REASONS, CARRIERS, FASHION, HOME, TOYS, ProductDef, PROVINCES, RETURN_REASONS, thumbDataUri } from "./catalog";
 import { hashSeed, rng } from "./rng";
 import type { MockConfig } from "./config";
 
@@ -30,7 +30,7 @@ export interface OrderW {
   units: UnitW[]; shippingFee: number; shippingPlatformDiscount: number; isCod: boolean; carrier: string; tracking: string;
   province: string; ret?: ReturnW; settleTime?: number; fees?: FeesW;
 }
-export interface ShopW { idx: number; id: string; name: string; cipher: string; code: string; baseOrders: number; products: ProductW[] }
+export interface ShopW { idx: number; id: string; name: string; cipher: string; code: string; baseOrders: number; products: ProductW[]; seller: SellerId }
 
 export interface World {
   config: MockConfig;
@@ -45,9 +45,19 @@ export interface World {
 }
 
 const SHOP_SPECS = [
-  { id: "7494012345678901234", name: "Hoa Sen Beauty Official", cipher: "ROW_mHs8Qb2xKpTq", code: "VNLCHS2X7Q", base: 170, catalog: BEAUTY, commission: 0.06 },
-  { id: "7494098765432109876", name: "Hoa Sen Home & Living", cipher: "ROW_tZ3nW9cVaLe4", code: "VNLCHH9K3M", base: 45, catalog: HOME, commission: 0.05 },
+  { id: "7494012345678901234", name: "Hoa Sen Beauty Official", cipher: "ROW_mHs8Qb2xKpTq", code: "VNLCHS2X7Q", base: 170, catalog: BEAUTY, commission: 0.06, sku: "HS", seller: "hoasen" },
+  { id: "7494098765432109876", name: "Hoa Sen Home & Living", cipher: "ROW_tZ3nW9cVaLe4", code: "VNLCHH9K3M", base: 45, catalog: HOME, commission: 0.05, sku: "HH", seller: "hoasen" },
+  { id: "7494055501234567890", name: "Thời Trang Mây Official", cipher: "ROW_aMy7Rk2pQw8z", code: "VNLCMAY01X", base: 60, catalog: FASHION, commission: 0.07, sku: "TM", seller: "may" },
+  { id: "7494077709876543210", name: "Đồ Chơi Bin Store", cipher: "ROW_bIn4Xc9tLm2s", code: "VNLCBIN02K", base: 25, catalog: TOYS, commission: 0.06, sku: "DB", seller: "bin" },
 ];
+
+/** Seller accounts: each authorizes the app separately and gets its own token / open_id (12 §3). */
+export const SELLERS = [
+  { id: "hoasen", name: "Công ty TNHH Mỹ Phẩm Hoa Sen", openId: "mock_open_id_hoasen" },
+  { id: "may", name: "Thời Trang Mây", openId: "mock_open_id_may" },
+  { id: "bin", name: "Đồ Chơi Bin", openId: "mock_open_id_bin" },
+] as const;
+export type SellerId = (typeof SELLERS)[number]["id"];
 
 const HOUR_WEIGHTS = [1, 0.6, 0.3, 0.2, 0.2, 0.3, 0.8, 1.6, 2.4, 3, 3.4, 4.4, 4.8, 4, 3, 2.8, 2.9, 3, 3.3, 3.8, 5.2, 6, 5.6, 3.2];
 const EVENT_DAYS: Record<string, number> = { "09-09": 3.2, "10-10": 3.2, "11-11": 3.6, "12-12": 3.2 };
@@ -78,7 +88,7 @@ function buildProducts(shopIdx: number, defs: ProductDef[], startTime: number, s
       weight: p.status ? 0 : 1 / Math.pow(i + 1, 0.9),
       skus: p.skus.map((s, j) => ({
         id: `${pid.slice(0, 6)}${String(51200 + i * 10 + j).padStart(7, "0")}`,
-        sellerSku: `${shopIdx ? "HH" : "HS"}-${String(i + 1).padStart(3, "0")}-${j + 1}`,
+        sellerSku: `${SHOP_SPECS[shopIdx].sku}-${String(i + 1).padStart(3, "0")}-${j + 1}`,
         name: s.name,
         price: s.price,
         inventory: i === 3 && j === 0 ? 6 : r.int(40, 1800),
@@ -91,7 +101,7 @@ export function buildWorld(config: MockConfig, bootTime = Math.floor(Date.now() 
   const todayVn = vnDate(bootTime);
   const startTime = vnMidnight(todayVn) - config.historyDays * D;
   const shops: ShopW[] = SHOP_SPECS.map((s, idx) => ({
-    idx, id: s.id, name: s.name, cipher: s.cipher, code: s.code, baseOrders: s.base * config.scale,
+    idx, id: s.id, name: s.name, cipher: s.cipher, code: s.code, baseOrders: s.base * config.scale, seller: s.seller as SellerId,
     products: buildProducts(idx, s.catalog, startTime, config.seed),
   }));
   const orders: OrderW[] = [];

@@ -193,7 +193,18 @@ export interface OrderStatementTransaction {
   fee_tax_amount: string;
   shipping_cost_amount: string;
   settlement_amount: string;
+  /** GMV Max ad fee deducted from this order's payout when ad auto-pay is on [CHƯA XÁC MINH for VN]. */
+  gmv_max_ad_fee_amount?: string;
   sku_transactions: SkuTransaction[];
+}
+
+/** Non-order line of a statement, e.g. GMV_PAYMENT_FOR_ADS (ads paid from the shop balance) [CHƯA XÁC MINH shape]. */
+export interface StatementAdjustmentTransaction {
+  type: "ADJUSTMENT";
+  adjustment_id: string;
+  adjustment_type: string;
+  settlement_amount: string;
+  currency: string;
 }
 
 export interface OrderStatementTransactionsData {
@@ -249,6 +260,8 @@ export interface ShopPerformanceInterval {
   product_page_views: number;
   avg_product_page_visitors: number;
   product_impressions?: number;
+  /** analytics 202509: revenue split by GMV Max vs. other sources. */
+  gmv_breakdowns?: { type: "GMV_MAX" | "NON_GMV_MAX" | string; amount: string }[];
 }
 
 export interface ShopProductPerformance {

@@ -14,13 +14,14 @@ import { FinanceModule } from "./finance/finance.module";
 import { CustomersModule } from "./customers/customers.module";
 import { AlertsModule } from "./alerts/alerts.module";
 import { ReportsModule } from "./reports/reports.module";
-import { TeamModule } from "./team/team.module";
+import { MembersModule } from "./orgs/members.module";
+import { AdminModule } from "./admin/admin.module";
 import { BillingModule } from "./billing/billing.module";
 
 @Module({
   imports: [
     AuthModule, SyncModule, ConnectionsModule, WebhooksModule, PnlModule, CostsModule, ShopsModule, OrdersModule, ProductsModule,
-    AdsModule, ReturnsModule, FinanceModule, CustomersModule, AlertsModule, ReportsModule, TeamModule, BillingModule,
+    AdsModule, ReturnsModule, FinanceModule, CustomersModule, AlertsModule, ReportsModule, MembersModule, AdminModule, BillingModule,
   ],
 })
 export class AppModule {}

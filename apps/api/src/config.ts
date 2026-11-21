@@ -3,7 +3,8 @@ import { z } from "zod";
 const schema = z.object({
   NODE_ENV: z.string().default("development"),
   PORT: z.coerce.number().default(4000),
-  AUTH_MODE: z.enum(["demo", "clerk"]).default("demo"),
+  DEMO_MODE: z.string().default("false"),
+  SESSION_DAYS: z.coerce.number().default(30),
   DATABASE_URL: z.string(),
   REDIS_URL: z.string().default("redis://localhost:6379"),
   SYNC_WORKER: z.string().default("true"),
@@ -31,8 +32,6 @@ const schema = z.object({
   PII_SALT: z.string().default(""),
 
   PNL_OPEN_WINDOW_DAYS: z.coerce.number().default(45),
-  CLERK_JWKS_URL: z.string().default("https://api.clerk.com/v1/jwks"),
-  CLERK_SECRET_KEY: z.string().default(""),
   SENDGRID_API_KEY: z.string().default(""),
   SENDGRID_FROM_EMAIL: z.string().default("noreply@ecomdash.vn"),
   TELEGRAM_BOT_TOKEN: z.string().default(""),
@@ -45,8 +44,8 @@ let cached: AppConfig | undefined;
 export function config(): AppConfig {
   if (cached) return cached;
   const c = schema.parse(process.env);
-  if (c.AUTH_MODE === "demo" && c.NODE_ENV === "production") throw new Error("AUTH_MODE=demo is not allowed when NODE_ENV=production");
-  if (c.AUTH_MODE === "demo") {
+  if (c.DEMO_MODE === "true" && c.NODE_ENV === "production") throw new Error("DEMO_MODE=true is not allowed when NODE_ENV=production");
+  if (c.DEMO_MODE === "true") {
     c.ENCRYPTION_KEY ||= "ZGVtby1rZXktMzItYnl0ZXMtZm9yLWVjb21kYXNoISE=";
     c.STATE_JWT_SECRET ||= "demo-state-secret";
     c.PII_SALT ||= "demo-pii-salt";

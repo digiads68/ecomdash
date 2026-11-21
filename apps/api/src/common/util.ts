@@ -1,4 +1,5 @@
-import { BadRequestException, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ForbiddenException, NotFoundException } from "@nestjs/common";
+import { Access, canEditOrg, canEditShop, canViewOrg, canViewShop, seesAllShops } from "../access/access";
 import { prisma, Prisma } from "@ecomdash/database";
 import { addDays, daysBetweenInclusive, toBusinessDate } from "@ecomdash/shared";
 
@@ -28,11 +29,26 @@ export function parsePeriod(from?: string, to?: string, timeZone?: string): Peri
   return { from: f, to: t, days, prevTo: addDays(f, -1), prevFrom: addDays(f, -days) };
 }
 
-export async function getShopForOrg(orgId: string, shopId: string | undefined) {
+/** Shop the user may view (or edit): out-of-scope shops are reported as not found, read-only users get 403 on edits. */
+export async function getShopForUser(access: Access, shopId: string | undefined, mode: "view" | "edit" = "view") {
   if (!shopId) throw new BadRequestException("shopId is required");
-  const shop = await prisma.shop.findFirst({ where: { id: shopId, organizationId: orgId } });
-  if (!shop) throw new NotFoundException("Shop not found");
+  const shop = await prisma.shop.findUnique({ where: { id: shopId } });
+  if (!shop || !canViewShop(access, shop)) throw new NotFoundException("Shop not found");
+  if (mode === "edit" && !canEditShop(access, shop)) throw new ForbiddenException("Bạn chỉ có quyền xem shop này");
   return shop;
+}
+
+/**
+ * Organisation for org-level pages. Explicit orgId is checked; otherwise the user's only organisation
+ * (or the organisation of their first granted shop) is used.
+ */
+export function resolveOrgId(access: Access, orgId: string | undefined, mode: "view" | "edit" = "view"): string {
+  const id = orgId || (Object.keys(access.orgRoles).length === 1 ? Object.keys(access.orgRoles)[0] : undefined) ||
+    (seesAllShops(access) ? undefined : (Object.values(access.shopGrants).find(Boolean) ?? undefined));
+  if (!id) throw new BadRequestException("orgId is required");
+  if (!canViewOrg(access, id)) throw new NotFoundException("Organisation not found");
+  if (mode === "edit" && !canEditOrg(access, id)) throw new ForbiddenException("Bạn chỉ có quyền xem tổ chức này");
+  return id;
 }
 
 export function kpi(value: number | null, previous: number | null) {

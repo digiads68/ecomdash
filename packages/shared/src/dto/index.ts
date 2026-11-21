@@ -15,10 +15,26 @@ export interface Paged<T> {
 }
 
 // ───── session / shops ─────
+export type PlatformRole = "SUPER_ADMIN" | "ADMIN" | "MOD";
+export type OrgRole = "OWNER" | "ADMIN" | "MEMBER";
+
+/** Linking state of an organisation: both TikTok platforms must be connected before numbers are shown (12 §3.1). */
+export interface OrgLinkStatus {
+  shopLinked: boolean;
+  shopCount: number;
+  adsLinked: boolean;
+  advertiserCount: number;
+  adsMode: "TIKTOK" | "NONE";
+  storeLinksComplete: boolean;
+  ready: boolean;
+  onboardedAt: string | null;
+}
+
 export interface MeDto {
-  user: { id: string; name: string | null; email: string };
-  organization: { id: string; name: string; plan: "STARTER" | "PRO" | "ENTERPRISE" };
-  authMode: "demo" | "clerk";
+  user: { id: string; name: string | null; email: string | null; hasPassword: boolean; tiktokLinked: boolean };
+  platformRole: PlatformRole | null;
+  organizations: { id: string; name: string; role: OrgRole | null; canEdit: boolean; status: OrgLinkStatus }[];
+  demo: boolean;
 }
 
 export interface ShopDto {
@@ -28,15 +44,34 @@ export interface ShopDto {
   region: string;
   currency: string;
   timezone: string;
+  organizationId: string;
+  organizationName: string;
+  canEdit: boolean;
+}
+
+export interface SyncWatermarkDto {
+  organizationId: string;
+  roundAt: string | null;
+  shopSyncedTo: string | null;
+  adsSyncedTo: string | null;
+  adsLagMinutes: number | null;
+  shopOk: boolean;
+  adsOk: boolean;
+  adsMode: "TIKTOK" | "NONE";
 }
 
 // ───── connections ─────
 export type AuthStatus = "ACTIVE" | "NEEDS_REAUTH" | "REVOKED";
 
 export interface ConnectionsDto {
+  organizationId: string;
+  canEdit: boolean;
+  canRemove: boolean;
+  status: OrgLinkStatus;
   sellerAuthorizations: {
     id: string;
     sellerName: string;
+    source: "SELF_SIGNUP" | "APP_STORE" | "ADMIN_LINK";
     status: AuthStatus;
     accessExpiresAt: string;
     refreshExpiresAt: string;
@@ -46,11 +81,14 @@ export interface ConnectionsDto {
   adsAuthorizations: {
     id: string;
     status: AuthStatus;
+    kind: "CLIENT" | "AGENCY_BC";
+    label: string | null;
     advertisers: {
       id: string;
       name: string;
       currency: string;
       timezone: string;
+      timezoneMismatch: boolean;
       storeLinks: { id: string; storeId: string; storeName: string; shopId: string | null; shopName: string | null; matchedBy: string | null }[];
     }[];
   }[];
@@ -97,7 +135,11 @@ export interface PnlSummaryDto {
   unit: { successOrders: number; revenue: number | null; platformFees: number | null; otherFees: number | null; cogs: number | null; custom: number | null; contribution: number | null; adSpend: number | null; netProfit: number | null };
   ads: { spend: number; manualSpend: number; gmvMaxSpend: number; tiktokRevenue: number; tiktokOrders: number; spendPerPaidOrder: number | null; spendPerSuccessOrder: number | null };
   kpis: { realizedRevenue: Kpi; netProfit: Kpi; netMargin: Kpi; netProfitPerOrder: Kpi; adSpend: Kpi; roasReal: Kpi; roasTiktok: Kpi; breakEven: Kpi };
-  dataQuality: { missingCostSkus: number; missingCostRevenueShare: number | null; unsettledOrders: number; feesEstimatedShare: number | null; cogsEstimatedShare: number | null };
+  dataQuality: {
+    missingCostSkus: number; missingCostRevenueShare: number | null; unsettledOrders: number; feesEstimatedShare: number | null; cogsEstimatedShare: number | null;
+    /** Shop-side ad data, for cross-checking only — never added to costs (12 §4). */
+    shopGmvMaxAdFee: number; adsPaidFromBalance: number; gmvMaxFeeGap: number | null; gmvMaxRevenueShare: number | null;
+  };
   syncedAt: string | null;
 }
 
@@ -374,4 +416,74 @@ export interface ReportConfigDto {
   recipientEmail: string;
   isActive: boolean;
   lastSentAt: string | null;
+}
+
+// ───── members ─────
+export interface MemberDto {
+  userId: string;
+  name: string | null;
+  email: string | null;
+  role: OrgRole;
+  shopIds: string[];
+  lastLoginAt: string | null;
+}
+
+export interface InvitationDto {
+  id: string;
+  email: string;
+  role: OrgRole | PlatformRole | null;
+  shopIds: string[];
+  expiresAt: string;
+  inviteUrl?: string;
+}
+
+export interface MembersDto {
+  organizationId: string;
+  shops: { id: string; name: string }[];
+  members: MemberDto[];
+  invitations: InvitationDto[];
+}
+
+// ───── DigiAds admin ─────
+export interface AdminOrgRowDto {
+  id: string;
+  name: string;
+  owner: string | null;
+  createdAt: string;
+  status: OrgLinkStatus;
+  shops: { id: string; name: string; code: string | null }[];
+  authExpiresAt: string | null;
+  lastRoundAt: string | null;
+  realizedRevenue30d: number;
+}
+
+export interface PoolDto {
+  sellerAuthorizations: { id: string; sellerName: string; source: string; createdAt: string; shops: { id: string; name: string; code: string | null }[] }[];
+  advertisers: { id: string; tiktokAdvertiserId: string; name: string; currency: string; via: string[]; stores: { storeId: string; storeName: string; storeCode: string | null; matchedShopId: string | null; matchedOrgId: string | null }[] }[];
+}
+
+export interface AuditLogDto {
+  id: string;
+  action: string;
+  actor: string | null;
+  targetType: string;
+  targetId: string;
+  meta: Record<string, unknown>;
+  createdAt: string;
+}
+
+export interface AdminOrgDetailDto extends AdminOrgRowDto {
+  advertisers: { id: string; name: string; tiktokAdvertiserId: string; via: string[] }[];
+  members: MemberDto[];
+  audit: AuditLogDto[];
+}
+
+export interface StaffDto {
+  id: string;
+  name: string | null;
+  email: string | null;
+  platformRole: PlatformRole;
+  status: "ACTIVE" | "INVITED" | "DISABLED";
+  shopIds: string[];
+  lastLoginAt: string | null;
 }

@@ -1,4 +1,4 @@
-import { AdsAuthClient, AdsClient, ShopAuthClient, ShopClient } from "@ecomdash/tiktok-client";
+import { AdsAuthClient, AdsClient, ShopAuthClient, ShopClient, TokenExpiredError } from "@ecomdash/tiktok-client";
 import { prisma } from "@ecomdash/database";
 import { config } from "../config";
 import { decryptToken, encryptToken } from "../common/crypto";
@@ -56,9 +56,11 @@ export async function refreshSellerToken(sellerAuthorizationId: string, force = 
       return t.access_token;
     } catch (e) {
       await tx.sellerAuthorization.update({ where: { id: a.id }, data: { status: "NEEDS_REAUTH" } });
-      await tx.alertInstance.create({
-        data: { organizationId: a.organizationId, kind: "AUTH_EXPIRING", title: `Uỷ quyền TikTok Shop của "${a.sellerName}" cần cấp lại`, state: "FIRING", metadata: { error: String(e) } },
-      });
+      if (a.organizationId) {
+        await tx.alertInstance.create({
+          data: { organizationId: a.organizationId, kind: "AUTH_EXPIRING", title: `Uỷ quyền TikTok Shop của "${a.sellerName}" cần cấp lại`, state: "FIRING", metadata: { error: String(e) } },
+        });
+      }
       throw e;
     }
   }, { timeout: 60_000 });
@@ -81,12 +83,21 @@ export function rootShopClient(accessToken: string): ShopClient {
   return new ShopClient({ baseUrl: c.TIKTOK_SHOP_BASE_URL, appKey: c.TIKTOK_APP_KEY, appSecret: c.TIKTOK_APP_SECRET, accessToken, rps: c.TIKTOK_SHOP_RPS });
 }
 
-export async function adsClientFor(advertiserId: string): Promise<{ client: AdsClient; tiktokAdvertiserId: string }> {
-  const adv = await prisma.advertiser.findUniqueOrThrow({ where: { id: advertiserId }, include: { adsAuthorization: true } });
+/**
+ * An advertiser can be reachable through the client's own OAuth and through DigiAds' Business Center (12 §3.2).
+ * Prefer the client's active token, fall back to the agency token.
+ */
+export async function adsClientFor(advertiserId: string): Promise<{ client: AdsClient; tiktokAdvertiserId: string; authorizationId: string }> {
+  const adv = await prisma.advertiser.findUniqueOrThrow({ where: { id: advertiserId }, include: { authorizations: { include: { adsAuthorization: true } } } });
+  const tokens = adv.authorizations.map((l) => l.adsAuthorization).filter((a) => a.status === "ACTIVE")
+    .sort((a, b) => (a.kind === b.kind ? b.createdAt.getTime() - a.createdAt.getTime() : a.kind === "CLIENT" ? -1 : 1));
+  const auth = tokens[0];
+  if (!auth) throw new TokenExpiredError(`No active TikTok for Business token for advertiser ${adv.tiktokAdvertiserId}`, 40105);
   const c = config();
   return {
-    client: new AdsClient({ baseUrl: c.TIKTOK_ADS_BASE_URL, accessToken: decryptToken(adv.adsAuthorization.accessTokenEncrypted), rps: c.TIKTOK_ADS_RPS }),
+    client: new AdsClient({ baseUrl: c.TIKTOK_ADS_BASE_URL, accessToken: decryptToken(auth.accessTokenEncrypted), rps: c.TIKTOK_ADS_RPS }),
     tiktokAdvertiserId: adv.tiktokAdvertiserId,
+    authorizationId: auth.id,
   };
 }
 

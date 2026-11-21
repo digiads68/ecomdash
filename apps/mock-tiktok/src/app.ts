@@ -1,10 +1,10 @@
 import Fastify, { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { createHmac, randomBytes } from "crypto";
 import { signShopRequest } from "@ecomdash/tiktok-client";
-import { buildAdvertisers, campaignDay, CampaignW } from "./ads";
+import { ADS_PRINCIPALS, advertisersFor, AdvertiserW, buildAdvertisers, campaignDay, CampaignW } from "./ads";
 import { hashSeed, rng } from "./rng";
 import {
-  orderStatus, OrderW, returnState, ShopW, statementId, statementTimeFor, vnDate, vnMidnight, World,
+  orderStatus, OrderW, returnState, SellerId, SELLERS, ShopW, statementId, statementTimeFor, vnDate, vnMidnight, World,
 } from "./world";
 
 type Q = Record<string, string | undefined>;
@@ -22,7 +22,7 @@ function paginate<T>(list: T[], pageSize: number, pageToken?: string) {
 }
 
 export interface MockState {
-  authCodes: Map<string, { kind: "shop" | "ads"; expiresAt: number }>;
+  authCodes: Map<string, { kind: "shop" | "ads"; expiresAt: number; principal: string }>;
   shopTokens: Map<string, number>;   // access token → expiresAt (unix s)
   refreshTokens: Map<string, number>;
   adsTokens: Set<string>;
@@ -40,25 +40,60 @@ export function buildApp(world: World): { app: FastifyInstance; state: MockState
   const realNow = () => Math.floor(Date.now() / 1000);
   // Tokens are self-validating (HMAC) so they survive a mock restart, like real TikTok tokens do.
   const tokKey = `${cfg.appSecret}|${cfg.adsSecret}|${cfg.seed}`;
-  const signedTok = (prefix: string, kind: string, exp: number) => {
-    const body = Buffer.from(JSON.stringify({ k: kind, e: exp, n: randomBytes(6).toString("hex") })).toString("base64url");
+  const signedTok = (prefix: string, kind: string, exp: number, principal: string) => {
+    const body = Buffer.from(JSON.stringify({ k: kind, e: exp, p: principal, n: randomBytes(6).toString("hex") })).toString("base64url");
     return `${prefix}${body}.${createHmac("sha256", tokKey).update(body).digest("base64url").slice(0, 22)}`;
   };
-  const readTok = (tok: string | undefined, kind: string): number | undefined => {
+  /** Token → { exp, principal } (seller id for shop tokens, BC/seller for ads tokens). Old tokens without a principal belong to Hoa Sen. */
+  const readTokFull = (tok: string | undefined, kind: string): { e: number; p: string } | undefined => {
     const rest = tok?.replace(/^(ROW_AT_|ROW_RT_|act\.)/, "") ?? "";
     const dot = rest.lastIndexOf(".");
     const body = rest.slice(0, dot), mac = rest.slice(dot + 1);
     if (dot < 1 || createHmac("sha256", tokKey).update(body).digest("base64url").slice(0, 22) !== mac) return undefined;
-    try { const p = JSON.parse(Buffer.from(body, "base64url").toString()); return p.k === kind ? p.e : undefined; } catch { return undefined; }
+    try { const p = JSON.parse(Buffer.from(body, "base64url").toString()); return p.k === kind ? { e: p.e, p: p.p ?? "hoasen" } : undefined; } catch { return undefined; }
   };
+  const readTok = (tok: string | undefined, kind: string) => readTokFull(tok, kind)?.e;
   const shopTokenExp = (t?: string) => (t && state.shopTokens.has(t) ? state.shopTokens.get(t) : readTok(t, "sa"));
-  const issueCode = (kind: "shop" | "ads") => {
+  const issueCode = (kind: "shop" | "ads", principal = "hoasen") => {
     const code = tok(kind === "shop" ? "TTP_" : "ADS_");
-    state.authCodes.set(code, { kind, expiresAt: realNow() + 1800 });
+    state.authCodes.set(code, { kind, expiresAt: realNow() + 1800, principal });
     return code;
   };
   const shopByCipher = (c?: string) => world.shops.find((s) => s.cipher === c);
   const json = (s: unknown) => (typeof s === "string" && s ? JSON.parse(s) : {});
+
+  // ───── shop-side view of ads (12 §4): GMV Max spend/revenue per shop-day, as the Ads API reports it ─────
+  const gmvMaxDay = (shopIdx: number, ymd: string) => {
+    let spend = 0, revenue = 0;
+    for (const a of advertisers) for (const st of a.stores.filter((x) => x.shopIdx === shopIdx)) {
+      for (const c of a.campaigns.filter((x) => x.kind === "GMV_MAX" && x.storeId === st.storeId)) {
+        const d = campaignDay(world, c, ymd);
+        if (d) { spend += d.spend; revenue += d.revenue; }
+      }
+    }
+    return { spend, revenue };
+  };
+  /** Thời Trang Mây pays GMV Max from its payouts: each settled order carries its share of that day's GMV Max cost. */
+  const AUTO_PAY_SHOPS = new Set([2]);
+  /** Hoa Sen Beauty tops up ads from its shop balance: one GMV_PAYMENT_FOR_ADS adjustment per statement. */
+  const BALANCE_PAY_SHOPS = new Set([0]);
+  const dayRevenue = new Map<string, number>();
+  const gmvMaxFee = (o: OrderW): number => {
+    if (!AUTO_PAY_SHOPS.has(o.shopIdx) || !o.fees || o.fees.revenue <= 0) return 0;
+    const ymd = vnDate(o.createTime);
+    const key = `${o.shopIdx}|${ymd}`;
+    if (!dayRevenue.has(key)) {
+      dayRevenue.set(key, world.ordersByShop[o.shopIdx].filter((x) => x.fees && x.fees.revenue > 0 && vnDate(x.createTime) === ymd).reduce((t, x) => t + x.fees!.revenue, 0));
+    }
+    const total = dayRevenue.get(key)!;
+    return total > 0 ? Math.round(gmvMaxDay(o.shopIdx, ymd).spend * (o.fees.revenue / total)) : 0;
+  };
+  const balanceAdjustment = (shopIdx: number, statementTime: number) => {
+    if (!BALANCE_PAY_SHOPS.has(shopIdx)) return 0;
+    let total = 0;
+    for (let d = 1; d <= 7; d++) total += gmvMaxDay(shopIdx, vnDate(statementTime - d * 86_400)).spend;
+    return Math.round(total * 0.4); // the rest is paid by card
+  };
 
   // ───────────── Shop Open API: signature, token, cipher checks (01 §3–4) ─────────────
   app.addHook("preHandler", async (req: FastifyRequest, reply: FastifyReply) => {
@@ -77,11 +112,14 @@ export function buildApp(world: World): { app: FastifyInstance; state: MockState
     const exp = shopTokenExp(token);
     if (exp === undefined) return reply.send(errBody(36009004, "Invalid access token"));
     if (exp < now) return reply.send(errBody(105002, "Access token is expired"));
+    const seller = readTokFull(token, "sa")?.p ?? "hoasen";
+    (req as FastifyRequest & { seller?: string }).seller = seller;
     if (apiPath.startsWith("/authorization/")) {
       if (q.shop_cipher) return reply.send(errBody(36009004, "shop_cipher is not expected"));
     } else {
       if (!q.shop_cipher) return reply.send(errBody(106013, "Missing shop_cipher"));
-      if (!shopByCipher(q.shop_cipher)) return reply.send(errBody(101000, "shop_cipher does not belong to this token"));
+      const shop = shopByCipher(q.shop_cipher);
+      if (!shop || shop.seller !== seller) return reply.send(errBody(101000, "shop_cipher does not belong to this token"));
     }
     if (cfg.faultRate > 0 && Math.random() < cfg.faultRate) return reply.send(errBody(36009002, "Too many requests"));
   });
@@ -89,8 +127,8 @@ export function buildApp(world: World): { app: FastifyInstance; state: MockState
   const shopOf = (req: FastifyRequest) => shopByCipher((req.query as Q).shop_cipher)!;
   const visible = (shop: ShopW) => world.ordersByShop[shop.idx].filter((o) => o.createTime <= world.now());
 
-  app.get("/shop/authorization/202309/shops", async () => okBody({
-    shops: world.shops.map((s) => ({ id: s.id, name: s.name, region: "VN", seller_type: "LOCAL", cipher: s.cipher, code: s.code })),
+  app.get("/shop/authorization/202309/shops", async (req) => okBody({
+    shops: world.shops.filter((s) => s.seller === (req as FastifyRequest & { seller?: string }).seller).map((s) => ({ id: s.id, name: s.name, region: "VN", seller_type: "LOCAL", cipher: s.cipher, code: s.code })),
   }));
 
   app.post("/shop/order/202309/orders/search", async (req) => {
@@ -161,8 +199,8 @@ export function buildApp(world: World): { app: FastifyInstance; state: MockState
       const revenue = sum((o) => o.fees!.revenue);
       return {
         id: statementId(shop.idx, st), statement_time: st, currency: "VND",
-        revenue_amount: S(revenue), fee_amount: S(-fee), adjustment_amount: "0", shipping_cost_amount: S(-ship),
-        net_sales_amount: S(revenue), settlement_amount: S(sum((o) => o.fees!.settlement)),
+        revenue_amount: S(revenue), fee_amount: S(-fee - sum(gmvMaxFee)), adjustment_amount: S(-balanceAdjustment(shop.idx, st)), shipping_cost_amount: S(-ship),
+        net_sales_amount: S(revenue), settlement_amount: S(sum((o) => o.fees!.settlement - gmvMaxFee(o)) - balanceAdjustment(shop.idx, st)),
         payment_status: st + 86_400 <= now ? "PAID" : "PROCESSING", payment_id: st + 86_400 <= now ? `PAY${statementId(shop.idx, st)}` : undefined,
       };
     });
@@ -181,7 +219,9 @@ export function buildApp(world: World): { app: FastifyInstance; state: MockState
     const now = world.now();
     const list = world.ordersByShop[shop.idx].filter((o) => o.fees && o.settleTime && o.settleTime <= now && statementId(o.shopIdx, statementTimeFor(o.settleTime)) === sid);
     const p = paginate(list, Math.min(100, Number(q.page_size) || 20), q.page_token);
-    return okBody({ statement_transactions: p.items.map((o) => ({ order_id: o.id, ...settlementTx(o) })), next_page_token: p.next, total_count: p.total });
+    const adj = balanceAdjustment(shop.idx, Number(sid.slice(4)) ? stTimeOf(sid) : 0);
+    const extra = !q.page_token && adj > 0 ? [{ type: "ADJUSTMENT", adjustment_id: `ADJ${sid}`, adjustment_type: "GMV_PAYMENT_FOR_ADS", settlement_amount: S(-adj), currency: "VND" }] : [];
+    return okBody({ statement_transactions: [...extra, ...p.items.map((o) => ({ type: "ORDER", order_id: o.id, ...settlementTx(o) }))], next_page_token: p.next, total_count: p.total + extra.length });
   });
 
   app.get("/shop/finance/202501/orders/:id/statement_transactions", async (req) => {
@@ -192,21 +232,31 @@ export function buildApp(world: World): { app: FastifyInstance; state: MockState
     return okBody({ order_id: id, statement_transactions: [settlementTx(o)] });
   });
 
+  function stTimeOf(sid: string) {
+    const d = sid.slice(4);
+    return vnMidnight(`${d.slice(0, 4)}-${d.slice(4, 6)}-${d.slice(6, 8)}`);
+  }
+
   function settlementTx(o: OrderW) {
     const f = o.fees!;
+    const adFee = gmvMaxFee(o);
     const st = statementTimeFor(o.settleTime!);
     const sub = o.units.reduce((s, u) => s + u.original, 0);
     const sellerD = o.units.reduce((s, u) => s + u.sellerDiscount, 0);
     return {
         statement_id: statementId(o.shopIdx, st), statement_time: st, currency: "VND",
-        revenue_amount: S(f.revenue), fee_tax_amount: S(-(f.commission + f.transaction + f.affiliate + f.infrastructure + f.tax)),
-        shipping_cost_amount: S(-(f.shippingCost + f.returnShipping)), settlement_amount: S(f.settlement),
+        revenue_amount: S(f.revenue), fee_tax_amount: S(-(f.commission + f.transaction + f.affiliate + f.infrastructure + f.tax + adFee)),
+        shipping_cost_amount: S(-(f.shippingCost + f.returnShipping)), settlement_amount: S(f.settlement - adFee),
+        ...(adFee ? { gmv_max_ad_fee_amount: S(-adFee) } : {}),
         sku_transactions: [{
           sku_id: o.units[0].skuId,
           revenue_breakdown: { subtotal_before_discount_amount: S(sub), seller_discount_amount: S(-sellerD), refund_subtotal_after_seller_discounts_amount: S(-(sub - sellerD - f.revenue)) },
           shipping_cost_breakdown: { actual_shipping_fee_amount: S(-f.shippingCost), return_shipping_fee_amount: S(-f.returnShipping) },
           fee_tax_breakdown: {
-            fee: { platform_commission_amount: S(-f.commission), transaction_fee_amount: S(-f.transaction), affiliate_commission_amount: S(-f.affiliate), vn_fix_infrastructure_fee_amount: S(-f.infrastructure) },
+            fee: {
+              platform_commission_amount: S(-f.commission), transaction_fee_amount: S(-f.transaction), affiliate_commission_amount: S(-f.affiliate), vn_fix_infrastructure_fee_amount: S(-f.infrastructure),
+              ...(adFee ? { gmv_max_ad_fee_amount: S(-adFee) } : {}),
+            },
             tax: { vat_amount: S(-f.tax) },
           },
         }],
@@ -255,7 +305,7 @@ export function buildApp(world: World): { app: FastifyInstance; state: MockState
     });
   });
 
-  app.get("/shop/analytics/202405/shop/performance", async (req) => {
+  const shopPerformance = async (req: FastifyRequest) => {
     const q = req.query as Q;
     const shop = shopOf(req);
     const intervals = [];
@@ -269,10 +319,17 @@ export function buildApp(world: World): { app: FastifyInstance; state: MockState
         gmv: { amount: S(os.reduce((s, o) => s + buyerPaid(o), 0)), currency: "VND" },
         orders: os.length, units_sold: os.reduce((s, o) => s + o.units.length, 0), buyers: new Set(os.map((o) => o.userId)).size,
         product_page_views: pv, avg_product_page_visitors: Math.round(pv * 0.6), product_impressions: pv * 9,
+        gmv_breakdowns: (() => {
+          const gmv = os.reduce((s, o) => s + buyerPaid(o), 0);
+          const viaGmvMax = Math.min(gmv, gmvMaxDay(shop.idx, d).revenue);
+          return [{ type: "GMV_MAX", amount: S(viaGmvMax) }, { type: "NON_GMV_MAX", amount: S(gmv - viaGmvMax) }];
+        })(),
       });
     }
     return okBody({ performance: { intervals } });
-  });
+  };
+  app.get("/shop/analytics/202405/shop/performance", shopPerformance);
+  app.get("/shop/analytics/202509/shop/performance", shopPerformance);
 
   app.get("/shop/analytics/202405/shop_products/performance", async (req) => {
     const q = req.query as Q;
@@ -304,22 +361,27 @@ export function buildApp(world: World): { app: FastifyInstance; state: MockState
   });
 
   // ───────────── Shop auth (unsigned) ─────────────
+  // The seller picks which Seller Center account is signed in (the real page uses the browser's TikTok session).
   app.get("/shop-auth/open/authorize", async (req, reply) => {
     const q = req.query as Q;
-    const code = issueCode("shop");
     const back = (extra: string) => `${cfg.shopRedirectUri}?${extra}&state=${encodeURIComponent(q.state ?? "")}`;
-    reply.type("text/html").send(authorizePage("TikTok Shop Seller Center", "Công ty TNHH Mỹ Phẩm Hoa Sen",
+    const accounts = SELLERS.map((x) => ({
+      label: x.name, sub: world.shops.filter((sh) => sh.seller === x.id).map((sh) => sh.name).join(", "),
+      approve: back(`code=${issueCode("shop", x.id)}`), id: x.id,
+    }));
+    reply.type("text/html").send(authorizePage("TikTok Shop Seller Center",
       ["Thông tin shop được uỷ quyền", "Đơn hàng", "Sản phẩm", "Tài chính", "Hoàn / huỷ", "Phân tích dữ liệu"],
-      back(`code=${code}`), back("code=null&error=auth_denied")));
+      accounts, back("code=null&error=auth_denied"), q.seller));
   });
 
-  const tokenResponse = () => {
+  const tokenResponse = (sellerId: string) => {
     const now = realNow();
-    const access = signedTok("ROW_AT_", "sa", now + cfg.accessTtlSec);
-    const refresh = signedTok("ROW_RT_", "sr", now + 365 * 86_400);
+    const seller = SELLERS.find((x) => x.id === sellerId) ?? SELLERS[0];
+    const access = signedTok("ROW_AT_", "sa", now + cfg.accessTtlSec, seller.id);
+    const refresh = signedTok("ROW_RT_", "sr", now + 365 * 86_400, seller.id);
     return {
       access_token: access, access_token_expire_in: now + cfg.accessTtlSec, refresh_token: refresh, refresh_token_expire_in: now + 365 * 86_400,
-      open_id: "mock_open_id_hoasen", seller_name: "Công ty TNHH Mỹ Phẩm Hoa Sen", seller_base_region: "VN", user_type: 0,
+      open_id: seller.openId, seller_name: seller.name, seller_base_region: "VN", user_type: 0,
       granted_scopes: ["seller.authorization.info", "seller.order.info", "seller.product.basic", "seller.finance.info", "seller.return_refund.basic", "seller.data_analytics"],
     };
   };
@@ -329,32 +391,37 @@ export function buildApp(world: World): { app: FastifyInstance; state: MockState
     const c = state.authCodes.get(q.auth_code ?? "");
     if (!c || c.kind !== "shop" || c.expiresAt < realNow()) return errBody(36004004, "Invalid auth code");
     state.authCodes.delete(q.auth_code!);
-    return okBody(tokenResponse());
+    return okBody(tokenResponse(c.principal));
   });
   app.get("/shop-auth/api/v2/token/refresh", async (req) => {
     const q = req.query as Q;
     if (q.app_key !== cfg.appKey || q.app_secret !== cfg.appSecret) return errBody(36009004, "Invalid app credentials");
-    const exp = readTok(q.refresh_token, "sr");
-    if (!exp || exp < realNow() || state.refreshTokens.has(q.refresh_token!)) return errBody(105002, "Refresh token is invalid or expired");
+    const rt = readTokFull(q.refresh_token, "sr");
+    if (!rt || rt.e < realNow() || state.refreshTokens.has(q.refresh_token!)) return errBody(105002, "Refresh token is invalid or expired");
     state.refreshTokens.set(q.refresh_token!, 0); // single use
-    return okBody(tokenResponse());
+    return okBody(tokenResponse(rt.p));
   });
 
   // ───────────── Ads ─────────────
   app.get("/ads/portal/auth", async (req, reply) => {
     const q = req.query as Q;
-    const code = issueCode("ads");
     const back = (extra: string) => `${q.redirect_uri}?${extra}&state=${encodeURIComponent(q.state ?? "")}`;
-    reply.type("text/html").send(authorizePage("TikTok for Business", "Business Center: Hoa Sen Group",
+    const accounts = ADS_PRINCIPALS.map((x) => {
+      const code = issueCode("ads", x.id);
+      return { id: x.id, label: x.label, sub: advertisersFor(advertisers, x.id).map((a) => a.name).join(", "), approve: back(`auth_code=${code}&code=${code}`) };
+    });
+    reply.type("text/html").send(authorizePage("TikTok for Business",
       ["Quản lý tài khoản quảng cáo (chỉ đọc)", "Báo cáo quảng cáo", "GMV Max", "Tài sản Business Center"],
-      back(`auth_code=${code}&code=${code}`), back("error=auth_denied")));
+      accounts, back("error=auth_denied"), q.account));
   });
 
   const ADS = "/ads/open_api/v1.3";
   const adsOk = (data: unknown) => okBody(data);
-  const adsAuth = (req: FastifyRequest) => !!readTok(req.headers["access-token"] as string | undefined, "ads");
+  const adsPrincipal = (req: FastifyRequest) => readTokFull(req.headers["access-token"] as string | undefined, "ads")?.p;
   const parseArr = (v?: string): string[] => { try { return v ? JSON.parse(v) : []; } catch { return []; } };
-  const advById = (id?: string) => advertisers.find((a) => a.id === id);
+  /** Advertiser if the request's token may see it (seller's own accounts, or accounts shared with the DigiAds BC). */
+  const visibleAdvs = (req: FastifyRequest): AdvertiserW[] => advertisersFor(advertisers, adsPrincipal(req) ?? "");
+  const advById = (req: FastifyRequest, id?: string) => visibleAdvs(req).find((a) => a.id === id);
 
   app.post(`${ADS}/oauth2/access_token/`, async (req) => {
     const b = json(req.body);
@@ -362,26 +429,26 @@ export function buildApp(world: World): { app: FastifyInstance; state: MockState
     const c = state.authCodes.get(b.auth_code ?? "");
     if (!c || c.kind !== "ads") return errBody(40002, "Invalid auth_code");
     state.authCodes.delete(b.auth_code);
-    const t = signedTok("act.", "ads", 4_102_444_800);
-    return adsOk({ access_token: t, advertiser_ids: advertisers.map((a) => a.id), scope: [1, 2, 3, 4] });
+    const t = signedTok("act.", "ads", 4_102_444_800, c.principal);
+    return adsOk({ access_token: t, advertiser_ids: advertisersFor(advertisers, c.principal).map((a) => a.id), scope: [1, 2, 3, 4] });
   });
 
   app.addHook("preHandler", async (req, reply) => {
     const url = req.url.split("?")[0];
     if (!url.startsWith(`${ADS}/`) || url.startsWith(`${ADS}/oauth2/access_token`)) return;
-    if (!adsAuth(req)) return reply.send(errBody(40105, "Access token is invalid"));
+    if (!adsPrincipal(req)) return reply.send(errBody(40105, "Access token is invalid"));
     if (cfg.faultRate > 0 && Math.random() < cfg.faultRate) return reply.send(errBody(40100, "Requests too frequent"));
   });
 
   app.get(`${ADS}/oauth2/advertiser/get/`, async (req) => {
     const q = req.query as Q;
     if (q.app_id !== cfg.adsAppId || q.secret !== cfg.adsSecret) return errBody(40001, "Invalid app credentials");
-    return adsOk({ list: advertisers.map((a) => ({ advertiser_id: a.id, advertiser_name: a.name })) });
+    return adsOk({ list: visibleAdvs(req).map((a) => ({ advertiser_id: a.id, advertiser_name: a.name })) });
   });
 
   app.get(`${ADS}/advertiser/info/`, async (req) => {
     const ids = parseArr((req.query as Q).advertiser_ids);
-    return adsOk({ list: advertisers.filter((a) => ids.includes(a.id)).map((a) => ({
+    return adsOk({ list: visibleAdvs(req).filter((a) => ids.includes(a.id)).map((a) => ({
       advertiser_id: a.id, name: a.name, currency: a.currency, timezone: a.timezone, display_timezone: a.timezone, status: "STATUS_ENABLE", owner_bc_id: a.bcId,
     })) });
   });
@@ -395,7 +462,7 @@ export function buildApp(world: World): { app: FastifyInstance; state: MockState
 
   app.get(`${ADS}/campaign/get/`, async (req) => {
     const q = req.query as Q;
-    const a = advById(q.advertiser_id);
+    const a = advById(req, q.advertiser_id);
     if (!a) return errBody(40300, "No permission for this advertiser");
     const page = Number(q.page) || 1, size = Math.min(1000, Number(q.page_size) || 10);
     const list = a.campaigns.map(campaignWire);
@@ -404,13 +471,13 @@ export function buildApp(world: World): { app: FastifyInstance; state: MockState
 
   app.get(`${ADS}/campaign/gmv_max/info/`, async (req) => {
     const q = req.query as Q;
-    const c = advById(q.advertiser_id)?.campaigns.find((x) => x.id === q.campaign_id && x.kind === "GMV_MAX");
+    const c = advById(req, q.advertiser_id)?.campaigns.find((x) => x.id === q.campaign_id && x.kind === "GMV_MAX");
     if (!c) return errBody(40002, "Campaign is not a GMV Max campaign");
     return adsOk({ campaign_id: c.id, store_id: c.storeId, store_authorized_bc_id: "7300001111222233", shopping_ads_type: c.shoppingType, budget: c.budget, roas_bid: c.roasBid, operation_status: "ENABLE" });
   });
 
   app.get(`${ADS}/gmv_max/store/list/`, async (req) => {
-    const a = advById((req.query as Q).advertiser_id);
+    const a = advById(req, (req.query as Q).advertiser_id);
     if (!a) return errBody(40300, "No permission for this advertiser");
     return adsOk({ store_list: a.stores.map((s) => ({
       store_id: s.storeId, store_name: s.storeName, store_code: s.storeCode, store_status: "ACTIVE", store_authorized_bc_id: a.bcId,
@@ -426,7 +493,7 @@ export function buildApp(world: World): { app: FastifyInstance; state: MockState
 
   app.get(`${ADS}/report/integrated/get/`, async (req) => {
     const q = req.query as Q;
-    const a = advById(q.advertiser_id);
+    const a = advById(req, q.advertiser_id);
     if (!a) return errBody(40300, "No permission for this advertiser");
     const days = reportRange(q);
     if (days.length > 30) return errBody(40002, "The time range of stat_time_day cannot exceed 30 days");
@@ -448,7 +515,7 @@ export function buildApp(world: World): { app: FastifyInstance; state: MockState
 
   app.get(`${ADS}/gmv_max/report/get/`, async (req) => {
     const q = req.query as Q;
-    const a = advById(q.advertiser_id);
+    const a = advById(req, q.advertiser_id);
     if (!a) return errBody(40300, "No permission for this advertiser");
     const stores = parseArr(q.store_ids);
     if (stores.length !== 1) return errBody(40002, "store_ids must contain exactly 1 item");
@@ -471,7 +538,17 @@ export function buildApp(world: World): { app: FastifyInstance; state: MockState
 
   // ───────────── dev helpers ─────────────
   app.get("/__mock/health", async () => ({ ok: true, now: world.now(), clockOffsetSec: world.clockOffsetSec }));
-  app.get("/__mock/auto-authorize", async (req) => ({ code: issueCode(((req.query as Q).kind as "shop" | "ads") ?? "shop") }));
+  app.get("/__mock/auto-authorize", async (req) => {
+    const q = req.query as Q;
+    return { code: issueCode((q.kind as "shop" | "ads") ?? "shop", q.seller ?? q.account ?? "hoasen") };
+  });
+  /** Seller authorizes the app from the Seller Center App Store: callback without state (12 §3.2). */
+  app.get("/__mock/app-store-authorize", async (req, reply) => {
+    const seller = ((req.query as Q).seller ?? "may") as SellerId;
+    const url = `${cfg.shopRedirectUri}?code=${issueCode("shop", seller)}`;
+    if ((req.query as Q).follow === "0") return { url };
+    return reply.redirect(url);
+  });
   app.post("/__mock/tick", async (req) => {
     world.clockOffsetSec += (Number((req.query as Q).minutes) || 60) * 60;
     return { ok: true, clockOffsetSec: world.clockOffsetSec };
@@ -543,12 +620,14 @@ export function orderWire(o: OrderW, now: number) {
   };
 }
 
-function authorizePage(product: string, account: string, scopes: string[], approve: string, deny: string): string {
+function authorizePage(product: string, scopes: string[], accounts: { id: string; label: string; sub: string; approve: string }[], deny: string, preselect?: string): string {
   const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
   return `<!doctype html><html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Uỷ quyền EcomDash</title>
 <style>body{font-family:system-ui,sans-serif;background:#f4f5f7;margin:0;padding:40px 16px;color:#161823}.c{max-width:440px;margin:0 auto;background:#fff;border-radius:12px;padding:28px;box-shadow:0 2px 12px rgba(0,0,0,.08)}
 h1{font-size:19px;margin:0 0 4px}.m{color:#6b6f80;font-size:13px}ul{padding-left:18px;font-size:14px;line-height:1.8}.b{display:flex;gap:10px;margin-top:22px}
-a{flex:1;text-align:center;padding:11px;border-radius:8px;text-decoration:none;font-weight:600}.y{background:#fe2c55;color:#fff}.n{background:#f1f1f2;color:#161823}.tag{display:inline-block;background:#fff3cd;color:#7a5b00;font-size:11px;padding:2px 8px;border-radius:99px;margin-bottom:12px}</style></head>
-<body><div class="c"><span class="tag">MOCK — không phải TikTok thật</span><h1>${esc(product)}</h1><p class="m">Ứng dụng <b>EcomDash</b> yêu cầu quyền truy cập tài khoản <b>${esc(account)}</b>:</p>
-<ul>${scopes.map((s) => `<li>${esc(s)}</li>`).join("")}</ul><div class="b"><a class="n" href="${esc(deny)}">Từ chối</a><a class="y" id="approve" href="${esc(approve)}">Đồng ý</a></div></div></body></html>`;
+a{flex:1;text-align:center;padding:11px;border-radius:8px;text-decoration:none;font-weight:600}.y{background:#fe2c55;color:#fff}.n{background:#f1f1f2;color:#161823}.acc{display:flex;gap:10px;align-items:flex-start;border:1px solid #e3e4e8;border-radius:8px;padding:10px;margin:8px 0;font-size:14px;cursor:pointer}.acc small{color:#6b6f80}.tag{display:inline-block;background:#fff3cd;color:#7a5b00;font-size:11px;padding:2px 8px;border-radius:99px;margin-bottom:12px}</style></head>
+<body><div class="c"><span class="tag">MOCK — không phải TikTok thật</span><h1>${esc(product)}</h1><p class="m">Ứng dụng <b>EcomDash</b> yêu cầu các quyền:</p>
+<ul>${scopes.map((s) => `<li>${esc(s)}</li>`).join("")}</ul><p class="m">Chọn tài khoản đang đăng nhập rồi bấm Đồng ý:</p>
+${accounts.map((a, i) => `<label class="acc"><input type="radio" name="acc" value="${esc(a.approve)}" data-id="${esc(a.id)}" ${(preselect ? a.id === preselect : i === 0) ? "checked" : ""}><span><b>${esc(a.label)}</b><br><small>${esc(a.sub)}</small></span></label>`).join("")}
+<div class="b"><a class="n" href="${esc(deny)}">Từ chối</a><a class="y" id="approve" href="#" onclick="location.href=document.querySelector('input[name=acc]:checked').value;return false">Đồng ý</a></div></div></body></html>`;
 }

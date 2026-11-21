@@ -51,7 +51,7 @@ export class WebhooksController {
           if (env.data?.expiration_time) {
             await prisma.sellerAuthorization.update({ where: { id: shop.sellerAuthorizationId }, data: { refreshExpiresAt: new Date(env.data.expiration_time * 1000) } });
           }
-          await prisma.alertInstance.create({
+          if (shop.organizationId) await prisma.alertInstance.create({
             data: { organizationId: shop.organizationId, shopId: shop.id, kind: "AUTH_EXPIRING", title: `Uỷ quyền TikTok Shop "${shop.sellerAuthorization.sellerName}" sắp hết hạn`, state: "FIRING", metadata: env.data ?? {} },
           });
           break;

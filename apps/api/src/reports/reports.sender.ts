@@ -2,6 +2,7 @@ import { Injectable, Logger } from "@nestjs/common";
 import { prisma } from "@ecomdash/database";
 import { addDays, toBusinessDate } from "@ecomdash/shared";
 import { PnlService } from "../pnl/pnl.service";
+import { SYSTEM_ACCESS } from "../access/access";
 import { notify } from "../notify/notify";
 
 const vnd = (v: number | null | undefined) => `${Math.round(v ?? 0).toLocaleString("vi-VN")} ₫`;
@@ -24,7 +25,7 @@ export class ReportsSender {
       if (!due || (c.lastSentAt && toBusinessDate(c.lastSentAt, c.shop.timezone) === today)) continue;
       const span = c.frequency === "daily" ? 1 : c.frequency === "weekly" ? 7 : 30;
       const to = addDays(today, -1);
-      const s = await this.pnl.summary(c.organizationId, c.shopId, addDays(to, -(span - 1)), to);
+      const s = await this.pnl.summary(SYSTEM_ACCESS, c.shopId, addDays(to, -(span - 1)), to);
       const text = [
         `Kỳ ${s.period.from} → ${s.period.to} (đã chốt ${Math.round((s.period.settledShare ?? 0) * 100)}% giá trị đơn)`,
         `Đơn đặt: ${s.orders.paid.count} · thành công ${s.orders.success.count} · huỷ ${s.orders.cancelled.count} · hoàn ${s.orders.returned.count + s.orders.partialReturn.count}`,

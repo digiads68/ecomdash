@@ -6,7 +6,7 @@ import { config } from "../config";
 export const SYNC_QUEUE = "sync";
 
 export type JobName =
-  | "shop.backfill" | "shop.orders" | "shop.orders.ids" | "shop.products" | "shop.returns" | "shop.finance" | "shop.analytics"
+  | "org.round" | "shop.backfill" | "shop.orders" | "shop.orders.ids" | "shop.products" | "shop.returns" | "shop.finance" | "shop.analytics"
   | "ads.backfill" | "ads.entities" | "ads.reports"
   | "token.refresh" | "pnl.recompute" | "pnl.window" | "alerts.evaluate" | "reports.send";
 
@@ -23,7 +23,7 @@ export class QueueService implements OnModuleDestroy {
 
   /** Deduplicated by jobId while waiting; removed on completion so it can be queued again. */
   async enqueue(name: JobName, data: Record<string, unknown> = {}, opts: JobsOptions = {}) {
-    const scope = (data.shopId ?? data.advertiserId ?? "global") as string;
+    const scope = (data.shopId ?? data.advertiserId ?? data.orgId ?? "global") as string;
     const jobId = (opts.jobId ?? `${name}|${scope}${data.mode ? `|${data.mode}` : ""}`).replace(/:/g, "|");
     opts = { ...opts, jobId };
     await this.queue.add(name, data, { jobId, removeOnComplete: true, removeOnFail: 100, attempts: 3, backoff: { type: "exponential", delay: 30_000 }, ...opts });

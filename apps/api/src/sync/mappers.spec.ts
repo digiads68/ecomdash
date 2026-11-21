@@ -1,5 +1,5 @@
 process.env.DATABASE_URL ??= "postgresql://x";
-process.env.AUTH_MODE = "demo";
+process.env.DEMO_MODE = "true";
 import { mapGmvMaxRow, mapIntegratedRow, mapOrder, mapSettlement } from "./mappers";
 
 const order: any = {
@@ -26,6 +26,19 @@ describe("mappers", () => {
       sku_transactions: [{ sku_id: "s", fee_tax_breakdown: { fee: { platform_commission_amount: "-11400", transaction_fee_amount: "-7800", vn_fix_infrastructure_fee_amount: "-3000", mystery_fee_amount: "-1000" }, tax: { vat_amount: "-2850" } } }],
     }] as any, "o1");
     expect(s).toMatchObject({ revenueAmount: 190000, platformCommission: 11400, transactionFee: 7800, infrastructureFee: 3000, otherFees: 1000, taxAmount: 2850, settlementAmount: 152000, tiktokStatementId: "st1" });
+  });
+
+  it("keeps GMV Max ad fees out of platform fees so ads are not counted twice", () => {
+    const s = mapSettlement([{
+      currency: "VND", revenue_amount: "200000", fee_tax_amount: "-40000", shipping_cost_amount: "0", settlement_amount: "160000",
+      sku_transactions: [{ sku_id: "s", fee_tax_breakdown: { fee: { platform_commission_amount: "-12000", gmv_max_ad_fee_amount: "-20000", affiliate_ads_commission_amount: "-8000" } } }],
+    }] as any, "o2");
+    expect(s).toMatchObject({ gmvMaxAdFee: 20000, otherFees: 0, affiliateAdsCommission: 8000, affiliateCommission: 8000, platformCommission: 12000 });
+    const both = mapSettlement([{
+      currency: "VND", revenue_amount: "200000", fee_tax_amount: "-20000", shipping_cost_amount: "0", settlement_amount: "180000", gmv_max_ad_fee_amount: "-20000",
+      sku_transactions: [{ sku_id: "s", fee_tax_breakdown: { fee: { gmv_max_ad_fee_amount: "-20000" } } }],
+    }] as any, "o3");
+    expect(both.gmvMaxAdFee).toBe(20000); // reported at both levels → counted once
   });
 
   it("maps report rows from both ad sources", () => {
