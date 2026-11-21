@@ -1,191 +1,42 @@
+import { randomBytes, scryptSync } from "crypto";
 import { PrismaClient } from "@prisma/client";
-import { faker } from "@faker-js/faker";
 
+/**
+ * DigiAds platform accounts only (docs/architecture/12 §2). Client organisations are created when a seller signs in
+ * with TikTok Shop, or by a DigiAds admin — shops, orders and ads then arrive through sync.
+ */
 const prisma = new PrismaClient();
 
+const hash = (pw: string) => {
+  const salt = randomBytes(16);
+  return `scrypt$${salt.toString("base64")}$${scryptSync(pw, salt, 64).toString("base64")}`;
+};
+
 async function main() {
-  console.log("🌱 Seeding database with 30 days of synthetic data...");
+  const production = process.env.NODE_ENV === "production" && process.env.DEMO_MODE !== "true";
+  const password = process.env.SEED_ADMIN_PASSWORD || (production ? "" : "demo12345");
+  if (!password) throw new Error("Set SEED_ADMIN_PASSWORD (min 8 characters) to create the first DigiAds super admin");
+  if (password.length < 8) throw new Error("SEED_ADMIN_PASSWORD must have at least 8 characters");
 
-  // Create demo organization
-  const org = await prisma.organization.upsert({
-    where: { slug: "demo-shop" },
-    update: {},
-    create: {
-      name: "Demo Shop VN",
-      slug: "demo-shop",
-      plan: "PRO",
-      status: "ACTIVE",
-    },
-  });
-
-  // Create demo user
-  const user = await prisma.user.upsert({
-    where: { clerkUserId: "user_demo123" },
-    update: {},
-    create: {
-      clerkUserId: "user_demo123",
-      email: "demo@ecomdash.vn",
-      name: "Demo Owner",
-    },
-  });
-
-  // Create org member
-  await prisma.organizationMember.upsert({
-    where: { organizationId_userId: { organizationId: org.id, userId: user.id } },
-    update: {},
-    create: {
-      organizationId: org.id,
-      userId: user.id,
-      role: "OWNER",
-      status: "ACTIVE",
-    },
-  });
-
-  // Create demo shop
-  const shop = await prisma.shop.upsert({
-    where: { tiktokShopId: "shop_demo_vn_001" },
-    update: {},
-    create: {
-      organizationId: org.id,
-      tiktokShopId: "shop_demo_vn_001",
-      name: "Demo TikTok Shop VN",
-      region: "VN",
-      accessTokenEncrypted: "encrypted_access_token",
-      refreshTokenEncrypted: "encrypted_refresh_token",
-      syncStatus: "SYNCED",
-      lastSyncedAt: new Date(),
-    },
-  });
-
-  // Create demo ad account
-  const adAccount = await prisma.adAccount.upsert({
-    where: { tiktokAdvertiserId: "ads_demo_vn_001" },
-    update: {},
-    create: {
-      organizationId: org.id,
-      shopId: shop.id,
-      tiktokAdvertiserId: "ads_demo_vn_001",
-      name: "Demo TikTok Ads VN",
-      accessTokenEncrypted: "encrypted_access_token",
-      refreshTokenEncrypted: "encrypted_refresh_token",
-      syncStatus: "SYNCED",
-      lastSyncedAt: new Date(),
-    },
-  });
-
-  // Create demo products
-  const productNames = [
-    "Kem Dưỡng Da SPF 50+",
-    "Serum Vitamin C 20%",
-    "Mặt Nạ Collagen Tươi",
-    "Nước Tẩy Trang Bifesta",
-    "Kem Chống Nắng Anessa",
-    "Toner Hada Labo",
-    "Sữa Rửa Mặt CeraVe",
-    "Retinol Cream Paula's Choice",
+  const staff = [
+    { email: process.env.SEED_ADMIN_EMAIL || "admin@digiads.vn", name: "Quản trị DigiAds", platformRole: "SUPER_ADMIN" as const },
+    ...(production ? [] : [{ email: "mod@digiads.vn", name: "Mod DigiAds", platformRole: "MOD" as const }]),
   ];
-
-  const products = [];
-  for (let i = 0; i < productNames.length; i++) {
-    const product = await prisma.product.upsert({
-      where: { tiktokProductId: `prod_demo_${i + 1}` },
-      update: {},
-      create: {
-        shopId: shop.id,
-        tiktokProductId: `prod_demo_${i + 1}`,
-        name: productNames[i],
-        thumbnailUrl: `https://picsum.photos/seed/prod${i + 1}/80/80`,
-        status: "ACTIVE",
-      },
+  for (const s of staff) {
+    const existing = await prisma.user.findUnique({ where: { email: s.email } });
+    if (existing?.passwordHash) {
+      if (existing.platformRole !== s.platformRole) await prisma.user.update({ where: { id: existing.id }, data: { platformRole: s.platformRole } });
+      console.log(`  ${s.email} exists (${s.platformRole}) — password unchanged`);
+      continue;
+    }
+    await prisma.user.upsert({
+      where: { email: s.email },
+      update: { platformRole: s.platformRole, passwordHash: hash(password), status: "ACTIVE" },
+      create: { ...s, passwordHash: hash(password), status: "ACTIVE" },
     });
-    products.push(product);
+    console.log(`  ${s.email} (${s.platformRole})${production ? "" : ` — mật khẩu: ${password}`}`);
   }
-
-  // Create demo campaigns
-  const campaignNames = [
-    "Brand Awareness Q2 2026",
-    "Flash Sale 12/12",
-    "Retargeting - Cart Abandoners",
-    "New Product Launch - Serum",
-    "Influencer Traffic Campaign",
-  ];
-
-  for (let i = 0; i < campaignNames.length; i++) {
-    await prisma.campaign.upsert({
-      where: { tiktokCampaignId: `camp_demo_${i + 1}` },
-      update: {},
-      create: {
-        adAccountId: adAccount.id,
-        tiktokCampaignId: `camp_demo_${i + 1}`,
-        name: campaignNames[i],
-        status: i < 3 ? "ACTIVE" : "PAUSED",
-        objective: ["AWARENESS", "CONVERSION", "RETARGETING", "CONVERSION", "TRAFFIC"][i],
-      },
-    });
-  }
-
-  // Create sample alert rules
-  await prisma.alertRule.upsert({
-    where: { id: "alert_rule_demo_1" },
-    update: {},
-    create: {
-      id: "alert_rule_demo_1",
-      organizationId: org.id,
-      shopId: shop.id,
-      name: "ROAS dưới 2.0",
-      conditions: {
-        conditions: [{ metric: "roas", operator: "lt", threshold: 2.0, window: "1h" }],
-        logic: "AND",
-      },
-      actions: {
-        actions: [
-          { type: "email", to: "demo@ecomdash.vn" },
-        ],
-      },
-      isActive: true,
-    },
-  });
-
-  await prisma.alertRule.upsert({
-    where: { id: "alert_rule_demo_2" },
-    update: {},
-    create: {
-      id: "alert_rule_demo_2",
-      organizationId: org.id,
-      shopId: shop.id,
-      name: "Doanh thu 0 trong 2 giờ",
-      conditions: {
-        conditions: [{ metric: "gmv", operator: "eq", threshold: 0, window: "2h" }],
-        logic: "AND",
-      },
-      actions: {
-        actions: [
-          { type: "email", to: "demo@ecomdash.vn" },
-          { type: "telegram", chatId: "-100000000" },
-        ],
-      },
-      isActive: true,
-    },
-  });
-
-  // Create a firing alert instance for demo notification panel
-  await prisma.alertInstance.create({
-    data: {
-      ruleId: "alert_rule_demo_1",
-      shopId: shop.id,
-      state: "FIRING",
-      metadata: { currentValue: 1.8, threshold: 2.0, metric: "roas" },
-      firedAt: new Date(Date.now() - 2 * 60 * 1000),
-    },
-  });
-
-  console.log("✅ Seed complete!");
-  console.log(`   Org: ${org.name} (${org.id})`);
-  console.log(`   Shop: ${shop.name}`);
-  console.log(`   Products: ${products.length}`);
-  console.log(`   NOTE: ClickHouse time-series data must be seeded separately via the workers seed script.`);
+  console.log("Seeded DigiAds platform accounts");
 }
 
-main()
-  .catch(console.error)
-  .finally(() => prisma.$disconnect());
+main().finally(() => prisma.$disconnect());

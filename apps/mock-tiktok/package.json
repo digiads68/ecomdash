@@ -1,0 +1,24 @@
+{
+  "name": "@ecomdash/mock-tiktok",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "start": "tsx src/server.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "jest"
+  },
+  "dependencies": {
+    "@ecomdash/tiktok-client": "workspace:*",
+    "fastify": "^4.28.0",
+    "@fastify/formbody": "^7.4.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.15.0",
+    "typescript": "^5.4.0",
+    "@types/node": "^20.14.0",
+    "jest": "^30.4.2",
+    "ts-jest": "^29.4.11",
+    "@types/jest": "^30.0.0"
+  }
+}
