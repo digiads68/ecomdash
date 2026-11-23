@@ -54,6 +54,14 @@ pnpm --filter @ecomdash/api test           # access matrix, mappers
 - TikTok tokens are AES-256-GCM encrypted (`apps/api/src/common/crypto.ts`); Shop access tokens refresh under a Postgres advisory lock.
 - Items marked **[CHƯA XÁC MINH]** in `docs/architecture/01`/`02` must be checked against the real APIs before go-live (`09-go-live-checklist.md`).
 
+## Làm việc nhóm (nhiều session / nhiều tài khoản)
+
+- Mỗi session một nhánh riêng `claude/<việc>`, PR nhỏ về `main`; `git pull --rebase` trước khi đẩy; không force-push nhánh chung.
+- Trước khi bàn giao: `pnpm typecheck`, test 4 package, và `pnpm check:access` (sau `pnpm demo`).
+- Migration Prisma: tránh hai người cùng sửa `schema.prisma` một lúc; tên migration có tiền tố thời gian; ghi rõ trong PR.
+- Không commit `.env`, `.local/`, khoá/secret.
+- Session mới đọc `CLAUDE.md` → `docs/architecture/00` và `12-accounts-and-access.md` trước khi sửa.
+
 ## Design system
 
 Primary `#3B82F6`, sidebar `bg-gray-900` with active `bg-primary-600`, good `text-green-600/bg-green-50`, bad `text-red-600/bg-red-50`. Money via `formatVND` / `formatVNDCompact` (`apps/web/lib/format.ts`). UI language: Vietnamese.

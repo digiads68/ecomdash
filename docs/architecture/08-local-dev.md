@@ -157,3 +157,8 @@ Môi trường cloud của Claude Code và máy cá nhân dùng cùng một repo
    - `Port 3000 is already in use` → `lsof -i :3000` rồi tắt tiến trình cũ.
    - `Cannot connect with DATABASE_URL` → Postgres chưa chạy hoặc chưa có role `ecomdash` (script tự tạo nếu bạn là superuser Postgres; trên macOS Homebrew user hiện tại là superuser).
    - Đăng nhập xong bị đẩy về `/login` → web và API phải cùng host (`localhost`, không trộn `127.0.0.1`), vì cookie phiên theo host.
+
+### Lưu ý khi repo nằm trong OneDrive (Windows)
+OneDrive đồng bộ liên tục `.git/`, `node_modules/`, `.next/`, `dist/`, `.local/` (hàng chục nghìn file): chậm và có thể làm hỏng `.git`.
+Nên đặt repo **ngoài OneDrive** (ví dụ `C:\dev\ecomdash`) hoặc trong WSL2 (`~/ecomdash`). `scripts/demo.sh` và `doctor.sh` là bash → chạy trong WSL2, không chạy trên PowerShell thuần.
+Nhiều tài khoản Claude Code cùng làm: mỗi người `git clone` repo GitHub của mình (được thêm làm collaborator), không dùng chung một thư mục làm việc.
