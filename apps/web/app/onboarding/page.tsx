@@ -1,342 +1,181 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
-import { Store, Megaphone, Bell, CheckCircle, ChevronRight, ExternalLink } from "lucide-react";
-import { useApiClient } from "@/lib/api-client";
-import { DemoBanner } from "@/components/layout/DemoBanner";
+import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import type { ConnectionsDto, SyncStateDto } from "@ecomdash/shared";
+import { apiFetch, useMe } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
-type Step = 1 | 2 | 3 | 4;
+const RES: Record<string, string> = { orders: "Đơn hàng", products: "Sản phẩm", returns: "Hoàn / huỷ", finance: "Đối soát", analytics: "Lượt xem", ads_entities: "Chiến dịch", ads_reports: "Chi phí quảng cáo" };
 
-const STEPS = [
-  { id: 1, label: "Kết nối TikTok Shop", icon: Store },
-  { id: 2, label: "Kết nối TikTok Ads", icon: Megaphone },
-  { id: 3, label: "Tạo cảnh báo đầu tiên", icon: Bell },
-  { id: 4, label: "Hoàn thành", icon: CheckCircle },
-];
+/**
+ * Client onboarding (12 §3.1): 1) TikTok Shop  2) TikTok Ads — both required (or "I don't run TikTok ads")
+ * 3) optional email + password. The first sync runs in the background meanwhile.
+ */
+function OnboardingInner() {
+  const params = useSearchParams();
+  const router = useRouter();
+  const qc = useQueryClient();
+  const me = useMe();
+  const org = me.data?.organizations.find((o) => o.role === "OWNER" || o.role === "ADMIN") ?? me.data?.organizations[0];
+  const [conn, setConn] = useState<ConnectionsDto | null>(null);
+  const [sync, setSync] = useState<SyncStateDto[]>([]);
+  const [step, setStep] = useState(0);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [msg, setMsg] = useState<{ tone: "red" | "green"; text: string } | null>(params.get("error") ? { tone: "red", text: params.get("error")! } : null);
+
+  const load = async () => {
+    if (!org) return;
+    const [c, s] = await Promise.all([apiFetch<ConnectionsDto>(`/connections?orgId=${org.id}`), apiFetch<SyncStateDto[]>(`/sync/status?orgId=${org.id}`)]);
+    setConn(c);
+    setSync(s);
+    return c;
+  };
+  useEffect(() => {
+    load().then((c) => {
+      if (!c) return;
+      const adsDone = c.status.adsLinked || c.status.adsMode === "NONE";
+      setStep(!c.status.shopLinked ? 0 : !adsDone ? 1 : 2);
+    });
+    const t = setInterval(() => { load(); }, 5000);
+    return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [org?.id]);
+
+  if (me.data && !org) {
+    return <Shell><p className="text-sm text-gray-500">Tài khoản này không thuộc tổ chức khách hàng nào. <Link className="text-primary-600 underline" href="/dashboard">Về Dashboard</Link></p></Shell>;
+  }
+  if (!conn || !org) return <Shell><p className="text-sm text-gray-500">Đang tải…</p></Shell>;
+
+  const shopDone = conn.status.shopLinked;
+  const adsDone = conn.status.adsLinked || conn.status.adsMode === "NONE";
+  const go = async (kind: "shop" | "ads") => {
+    const { url } = await apiFetch<{ url: string }>(`/connections/${kind}/authorize-url?orgId=${org.id}&returnTo=/onboarding`);
+    window.location.href = url;
+  };
+  const noAds = async () => {
+    await apiFetch(`/connections/orgs/${org.id}/ads-mode`, { method: "POST", body: JSON.stringify({ mode: "NONE" }) });
+    await load();
+    qc.invalidateQueries();
+    setStep(2);
+  };
+  const finish = async (e?: React.FormEvent) => {
+    e?.preventDefault();
+    setMsg(null);
+    try {
+      if (password) await apiFetch("/auth/password", { method: "POST", body: JSON.stringify({ email: email || undefined, newPassword: password }) });
+      await apiFetch(`/connections/orgs/${org.id}/onboarded`, { method: "POST" });
+      await qc.invalidateQueries();
+      router.replace("/dashboard");
+    } catch (err) {
+      setMsg({ tone: "red", text: (err as Error).message });
+    }
+  };
+  const allShops = conn.sellerAuthorizations.flatMap((a) => a.shops);
+  const advertisers = conn.adsAuthorizations.flatMap((a) => a.advertisers).filter((v, i, arr) => arr.findIndex((x) => x.id === v.id) === i);
+  const steps = ["TikTok Shop", "TikTok Ads", "Tài khoản"];
+
+  return (
+    <Shell wide>
+      <h1 className="text-lg font-semibold text-gray-900">Chào mừng {org.name}</h1>
+      <p className="text-sm text-gray-500">Gắn hai nền tảng để doanh thu shop và chi phí quảng cáo về cùng một khung số liệu.</p>
+      <ol className="mt-4 grid grid-cols-3 gap-2" aria-label="Tiến độ">
+        {steps.map((label, i) => {
+          const done = i === 0 ? shopDone : i === 1 ? adsDone : false;
+          return (
+            <li key={label}>
+              <button type="button" onClick={() => setStep(i)} className={cn("w-full rounded-lg border px-2 py-2 text-left text-xs", step === i ? "border-primary-400 bg-primary-50" : "border-gray-200")}>
+                <span className={cn("mr-1 font-semibold", done ? "text-green-600" : "text-gray-400")}>{done ? "✓" : `${i + 1}.`}</span>{label}
+                {i < 2 && <span className="block text-[10px] text-gray-400">bắt buộc</span>}
+              </button>
+            </li>
+          );
+        })}
+      </ol>
+      {params.get("connected") && <p className="mt-3 rounded-lg bg-green-50 px-3 py-2 text-[13px] text-green-700">Đã gắn {params.get("connected") === "shop" ? `${params.get("count")} shop` : `${params.get("count")} tài khoản quảng cáo`}.</p>}
+      {msg && <p className={cn("mt-3 rounded-lg px-3 py-2 text-[13px]", msg.tone === "red" ? "bg-red-50 text-red-700" : "bg-green-50 text-green-700")}>{msg.text}</p>}
+
+      <section className="mt-4 min-h-[180px]">
+        {step === 0 && (
+          <div className="grid gap-3">
+            <h2 className="font-semibold">Bước 1 · TikTok Shop <span className="text-xs font-normal text-gray-500">(TikTok Shop Partner API)</span></h2>
+            {shopDone ? (
+              <ul className="grid gap-1 text-sm">{allShops.map((s) => <li key={s.id} className="flex justify-between rounded-lg bg-gray-50 px-3 py-2"><span>{s.name}</span><span className="text-xs text-gray-500">{s.code}</span></li>)}</ul>
+            ) : <p className="text-sm text-gray-500">Uỷ quyền cho EcomDash đọc đơn hàng, sản phẩm, đối soát và hoàn/huỷ của shop.</p>}
+            <div className="flex gap-2">
+              <button type="button" onClick={() => go("shop")} className="rounded-lg border border-gray-200 px-3 py-2 text-sm">{shopDone ? "Gắn thêm shop" : "Kết nối TikTok Shop"}</button>
+              {shopDone && <button type="button" onClick={() => setStep(1)} className="rounded-lg bg-primary-500 px-4 py-2 text-sm font-semibold text-white">Tiếp tục</button>}
+            </div>
+          </div>
+        )}
+        {step === 1 && (
+          <div className="grid gap-3">
+            <h2 className="font-semibold">Bước 2 · TikTok Ads <span className="text-xs font-normal text-gray-500">(TikTok for Business)</span></h2>
+            <p className="text-sm text-gray-500">Chi phí quảng cáo chỉ lấy được từ TikTok for Business — Shop API không có số chi tiêu. Chọn tài khoản quảng cáo đang chạy cho shop; hệ thống tự khớp store với shop.</p>
+            {advertisers.length > 0 && (
+              <ul className="grid gap-1 text-sm">{advertisers.map((v) => (
+                <li key={v.id} className="rounded-lg bg-gray-50 px-3 py-2">
+                  <div className="flex justify-between"><b>{v.name}</b><span className="text-xs text-gray-500">{v.currency}</span></div>
+                  {v.storeLinks.map((l) => <div key={l.id} className="text-xs text-gray-500">Store {l.storeName} → {l.shopName ?? <span className="text-amber-700">chưa khớp shop (chọn ở Cài đặt → Kết nối)</span>}</div>)}
+                  {v.timezoneMismatch && <div className="text-xs text-amber-700">Múi giờ tài khoản khác múi giờ shop — số theo ngày có thể lệch.</div>}
+                </li>
+              ))}</ul>
+            )}
+            {conn.status.adsMode === "NONE" && <p className="rounded-lg bg-gray-50 px-3 py-2 text-sm text-gray-600">Bạn đã chọn không chạy quảng cáo TikTok. ROAS sẽ hiển thị "Không chạy QC".</p>}
+            <div className="flex flex-wrap gap-2">
+              <button type="button" onClick={() => go("ads")} className={cn("rounded-lg px-3 py-2 text-sm", adsDone ? "border border-gray-200" : "bg-primary-500 font-semibold text-white")}>{conn.status.adsLinked ? "Gắn thêm tài khoản" : "Kết nối TikTok for Business"}</button>
+              {!conn.status.adsLinked && conn.status.adsMode !== "NONE" && <button type="button" id="no-ads" onClick={noAds} className="rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-600">Tôi không chạy quảng cáo TikTok</button>}
+              {adsDone && <button type="button" onClick={() => setStep(2)} className="rounded-lg bg-primary-500 px-4 py-2 text-sm font-semibold text-white">Tiếp tục</button>}
+            </div>
+          </div>
+        )}
+        {step === 2 && (
+          <form onSubmit={finish} className="grid gap-3">
+            <h2 className="font-semibold">Bước 3 · Tài khoản <span className="text-xs font-normal text-gray-500">(tuỳ chọn)</span></h2>
+            {me.data?.user.hasPassword ? <p className="text-sm text-gray-500">Bạn đã có mật khẩu đăng nhập ({me.data.user.email}).</p> : (
+              <>
+                <p className="text-sm text-gray-500">Đặt email + mật khẩu để đăng nhập không cần TikTok (ví dụ trên máy tính khác). Có thể bỏ qua.</p>
+                <input type="email" placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} className="rounded-lg border border-gray-200 px-3 py-2 text-sm" />
+                <input type="password" placeholder="Mật khẩu (ít nhất 8 ký tự)" value={password} onChange={(e) => setPassword(e.target.value)} minLength={8} className="rounded-lg border border-gray-200 px-3 py-2 text-sm" />
+              </>
+            )}
+            <p className="text-sm text-gray-500">Giá vốn từng SKU nhập ở <b>Cài đặt → Chi phí</b> sau khi đồng bộ xong sản phẩm.</p>
+            <button disabled={!shopDone || !adsDone} className="justify-self-start rounded-lg bg-primary-500 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">Vào Dashboard</button>
+            {(!shopDone || !adsDone) && <p className="text-xs text-amber-700">Cần hoàn tất bước 1 và 2 trước.</p>}
+          </form>
+        )}
+      </section>
+
+      {sync.length > 0 && (
+        <div className="mt-5 border-t border-gray-100 pt-3">
+          <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-gray-400">Đồng bộ lần đầu</div>
+          <div className="flex flex-wrap gap-1.5">
+            {sync.map((s) => (
+              <span key={s.id} className={cn("rounded-full px-2 py-0.5 text-[11px]", s.status === "OK" ? "bg-green-50 text-green-700" : s.status === "ERROR" ? "bg-red-50 text-red-700" : "bg-gray-100 text-gray-500")}>
+                {s.status === "OK" ? "✓" : "…"} {RES[s.resource] ?? s.resource} · {s.scopeName}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+    </Shell>
+  );
+}
+
+function Shell({ children, wide }: { children: React.ReactNode; wide?: boolean }) {
+  return (
+    <div className="grid min-h-screen place-items-center bg-gray-50 px-4 py-10">
+      <div className={cn("w-full", wide ? "max-w-[620px]" : "max-w-[400px]")}>
+        <div className="mb-4 text-center text-2xl font-bold tracking-tight text-gray-900">Ecom<span className="text-primary-500">Dash</span></div>
+        <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">{children}</div>
+      </div>
+    </div>
+  );
+}
 
 export default function OnboardingPage() {
-  const router = useRouter();
-  const fetchWithAuth = useApiClient();
-  const [step, setStep] = useState<Step>(1);
-  const [shopConnected, setShopConnected] = useState(false);
-  const [adsConnected, setAdsConnected] = useState(false);
-  const [loading, setLoading] = useState(false);
-
-  async function handleConnectShop() {
-    setLoading(true);
-    try {
-      const res = await fetchWithAuth<{ url: string | null; demo: boolean }>("/tiktok/shop/auth-url");
-      if (res.demo) {
-        await fetchWithAuth("/tiktok/shop/demo-connect", { method: "POST" });
-      } else if (res.url) {
-        window.open(res.url, "_blank");
-      }
-      setShopConnected(true);
-    } catch {
-      setShopConnected(true);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function handleConnectAds() {
-    setLoading(true);
-    try {
-      const res = await fetchWithAuth<{ url: string | null; demo: boolean }>("/tiktok/ads/auth-url");
-      if (res.demo) {
-        await fetchWithAuth("/tiktok/ads/demo-connect", { method: "POST" });
-      } else if (res.url) {
-        window.open(res.url, "_blank");
-      }
-      setAdsConnected(true);
-    } catch {
-      setAdsConnected(true);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  function handleSkip() {
-    if (step < 3) setStep((s) => (s + 1) as Step);
-    else router.push("/overview");
-  }
-
-  function handleNext() {
-    if (step === 4) {
-      router.push("/overview");
-    } else {
-      setStep((s) => (s + 1) as Step);
-    }
-  }
-
-  return (
-    <div className="min-h-screen bg-gray-50 flex flex-col">
-      <DemoBanner />
-    <div className="flex-1 flex flex-col items-center justify-center p-6">
-      <div className="w-full max-w-lg">
-        {/* Logo */}
-        <div className="text-center mb-8">
-          <h1 className="text-2xl font-bold text-gray-900">
-            Ecom<span className="text-primary-500">Dash</span>
-          </h1>
-          <p className="text-sm text-gray-500 mt-1">Thiết lập tài khoản của bạn</p>
-        </div>
-
-        {/* Step progress */}
-        <div className="flex items-center gap-2 mb-8">
-          {STEPS.map((s, i) => {
-            const done = step > s.id;
-            const active = step === s.id;
-            return (
-              <div key={s.id} className="flex items-center gap-2 flex-1 min-w-0">
-                <div className={cn(
-                  "w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0 transition-colors",
-                  done ? "bg-green-500 text-white" : active ? "bg-primary-600 text-white" : "bg-gray-200 text-gray-400"
-                )}>
-                  {done ? <CheckCircle className="w-4 h-4" /> : s.id}
-                </div>
-                <span className={cn(
-                  "text-xs font-medium truncate",
-                  active ? "text-gray-900" : done ? "text-green-600" : "text-gray-400"
-                )}>
-                  {s.label}
-                </span>
-                {i < STEPS.length - 1 && (
-                  <div className={cn("h-0.5 flex-1 rounded-full", done ? "bg-green-300" : "bg-gray-200")} />
-                )}
-              </div>
-            );
-          })}
-        </div>
-
-        {/* Step content */}
-        <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-8">
-          {step === 1 && (
-            <StepContent
-              icon={<Store className="w-10 h-10 text-primary-500" />}
-              title="Kết nối TikTok Shop"
-              description="Kết nối shop của bạn để xem doanh thu, đơn hàng, và sản phẩm bán chạy theo thời gian thực."
-              connected={shopConnected}
-              connectedLabel="TikTok Shop đã kết nối!"
-              buttonLabel="Kết nối TikTok Shop"
-              onConnect={handleConnectShop}
-              loading={loading}
-              onSkip={handleSkip}
-              onNext={handleNext}
-            />
-          )}
-
-          {step === 2 && (
-            <StepContent
-              icon={<Megaphone className="w-10 h-10 text-purple-500" />}
-              title="Kết nối TikTok Ads"
-              description="Kết nối tài khoản quảng cáo để theo dõi ROAS, chi phí và hiệu suất từng chiến dịch."
-              connected={adsConnected}
-              connectedLabel="TikTok Ads đã kết nối!"
-              buttonLabel="Kết nối TikTok Ads"
-              onConnect={handleConnectAds}
-              loading={loading}
-              onSkip={handleSkip}
-              onNext={handleNext}
-            />
-          )}
-
-          {step === 3 && <AlertSetupStep onNext={handleNext} onSkip={handleSkip} />}
-
-          {step === 4 && (
-            <div className="text-center space-y-4">
-              <div className="w-16 h-16 rounded-full bg-green-100 flex items-center justify-center mx-auto">
-                <CheckCircle className="w-8 h-8 text-green-500" />
-              </div>
-              <div>
-                <h2 className="text-xl font-bold text-gray-900">Tất cả đã sẵn sàng! 🎉</h2>
-                <p className="text-sm text-gray-500 mt-2">
-                  EcomDash đang đồng bộ dữ liệu. Dashboard sẽ hiển thị dữ liệu trong vài phút.
-                </p>
-              </div>
-              <div className="bg-primary-50 rounded-xl p-4 text-left space-y-2">
-                <p className="text-xs font-semibold text-primary-700 uppercase tracking-wide">Tiếp theo</p>
-                {[
-                  "Xem tổng quan doanh thu và ROAS",
-                  "Theo dõi sản phẩm bán chạy",
-                  "Nhận cảnh báo khi có vấn đề",
-                ].map(item => (
-                  <div key={item} className="flex items-center gap-2 text-sm text-primary-800">
-                    <ChevronRight className="w-3.5 h-3.5" />
-                    {item}
-                  </div>
-                ))}
-              </div>
-              <button
-                onClick={() => router.push("/overview")}
-                className="w-full py-3 rounded-xl bg-primary-600 text-white font-semibold hover:bg-primary-700 transition-colors"
-              >
-                Đến Dashboard →
-              </button>
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-    </div>
-  );
-}
-
-// ── Step content component ────────────────────────────────────────────────────
-
-function StepContent({
-  icon, title, description, connected, connectedLabel, buttonLabel,
-  onConnect, loading, onSkip, onNext,
-}: {
-  icon: React.ReactNode; title: string; description: string;
-  connected: boolean; connectedLabel: string; buttonLabel: string;
-  onConnect: () => void; loading: boolean; onSkip: () => void; onNext: () => void;
-}) {
-  return (
-    <div className="space-y-6">
-      <div className="flex flex-col items-center text-center gap-3">
-        {icon}
-        <div>
-          <h2 className="text-xl font-bold text-gray-900">{title}</h2>
-          <p className="text-sm text-gray-500 mt-1.5">{description}</p>
-        </div>
-      </div>
-
-      {connected ? (
-        <div className="flex items-center justify-center gap-2 py-3 rounded-xl bg-green-50 border border-green-200">
-          <CheckCircle className="w-5 h-5 text-green-500" />
-          <span className="text-sm font-semibold text-green-700">{connectedLabel}</span>
-        </div>
-      ) : (
-        <button
-          onClick={onConnect}
-          disabled={loading}
-          className="w-full py-3 rounded-xl bg-primary-600 text-white font-semibold hover:bg-primary-700 disabled:opacity-60 transition-colors flex items-center justify-center gap-2"
-        >
-          <ExternalLink className="w-4 h-4" />
-          {loading ? "Đang kết nối..." : buttonLabel}
-        </button>
-      )}
-
-      <div className="flex gap-3">
-        <button
-          onClick={onSkip}
-          className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm font-medium text-gray-500 hover:bg-gray-50 transition-colors"
-        >
-          Bỏ qua
-        </button>
-        <button
-          onClick={onNext}
-          disabled={!connected}
-          className="flex-1 py-2.5 rounded-xl bg-gray-900 text-white text-sm font-semibold hover:bg-gray-800 disabled:opacity-40 transition-colors"
-        >
-          Tiếp theo →
-        </button>
-      </div>
-    </div>
-  );
-}
-
-// ── Alert setup step ──────────────────────────────────────────────────────────
-
-function AlertSetupStep({ onNext, onSkip }: { onNext: () => void; onSkip: () => void }) {
-  const fetchWithAuth = useApiClient();
-  const [roasThreshold, setRoasThreshold] = useState("2.0");
-  const [email, setEmail] = useState("");
-  const [created, setCreated] = useState(false);
-  const [creating, setCreating] = useState(false);
-
-  async function handleCreate() {
-    if (!email.trim()) return;
-    setCreating(true);
-    try {
-      await fetchWithAuth("/alerts/rules", {
-        method: "POST",
-        body: JSON.stringify({
-          name: `ROAS dưới ${roasThreshold}`,
-          conditions: [{ metric: "roas", operator: "lt", threshold: parseFloat(roasThreshold), window: "1h" }],
-          logic: "AND",
-          actions: [{ type: "email", to: email.trim() }],
-          isActive: true,
-        }),
-      });
-      setCreated(true);
-    } catch {
-      setCreated(true);
-    } finally {
-      setCreating(false);
-    }
-  }
-
-  return (
-    <div className="space-y-6">
-      <div className="flex flex-col items-center text-center gap-3">
-        <Bell className="w-10 h-10 text-yellow-500" />
-        <div>
-          <h2 className="text-xl font-bold text-gray-900">Cảnh báo đầu tiên</h2>
-          <p className="text-sm text-gray-500 mt-1.5">
-            Được thông báo ngay khi ROAS giảm dưới ngưỡng. Đây là cảnh báo quan trọng nhất.
-          </p>
-        </div>
-      </div>
-
-      {created ? (
-        <div className="flex items-center justify-center gap-2 py-3 rounded-xl bg-green-50 border border-green-200">
-          <CheckCircle className="w-5 h-5 text-green-500" />
-          <span className="text-sm font-semibold text-green-700">Cảnh báo đã được tạo!</span>
-        </div>
-      ) : (
-        <div className="space-y-3">
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1.5">Cảnh báo khi ROAS thấp hơn</label>
-            <div className="flex gap-2 items-center">
-              <input
-                type="number"
-                step="0.1"
-                className="w-24 border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-primary-500 outline-none"
-                value={roasThreshold}
-                onChange={e => setRoasThreshold(e.target.value)}
-              />
-              <span className="text-sm text-gray-400">× trong 1 giờ qua</span>
-            </div>
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1.5">Gửi thông báo đến email</label>
-            <input
-              type="email"
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 outline-none"
-              placeholder="your@email.com"
-              value={email}
-              onChange={e => setEmail(e.target.value)}
-            />
-          </div>
-          <button
-            onClick={handleCreate}
-            disabled={creating || !email.trim()}
-            className="w-full py-2.5 rounded-xl bg-yellow-500 text-white font-semibold hover:bg-yellow-600 disabled:opacity-60 transition-colors"
-          >
-            {creating ? "Đang tạo..." : "Tạo cảnh báo"}
-          </button>
-        </div>
-      )}
-
-      <div className="flex gap-3">
-        <button
-          onClick={onSkip}
-          className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm font-medium text-gray-500 hover:bg-gray-50 transition-colors"
-        >
-          Bỏ qua
-        </button>
-        <button
-          onClick={onNext}
-          disabled={!created}
-          className="flex-1 py-2.5 rounded-xl bg-gray-900 text-white text-sm font-semibold hover:bg-gray-800 disabled:opacity-40 transition-colors"
-        >
-          Tiếp theo →
-        </button>
-      </div>
-    </div>
-  );
+  return <Suspense><OnboardingInner /></Suspense>;
 }

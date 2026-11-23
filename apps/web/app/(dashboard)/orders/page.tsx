@@ -1,118 +1,67 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
-import { Package, CheckCircle2, Clock, XCircle, RotateCcw } from "lucide-react";
-import { useShopStore } from "@/lib/stores/shop-store";
-import { useApiClient } from "@/lib/api-client";
-import { MetricCard } from "@/components/metrics/MetricCard";
-import { OrderStatusChart } from "@/components/charts/OrderStatusChart";
+import Link from "next/link";
+import { useState } from "react";
+import type { OrderListDto, UiStatusGroup } from "@ecomdash/shared";
+import { Badge, Button, Empty, ErrorBox, Loading, PageHeader, ProductCell, TableWrap, Tabs, Tag, Td, Th } from "@/components/ui";
+import { useApi } from "@/lib/api";
+import { formatDateTime, formatNumber, formatVND } from "@/lib/format";
+import { OutcomeBadge, StatusBadge } from "./status";
 
-function useDateRange() {
-  const { getDateRangeValues } = useShopStore();
-  return getDateRangeValues();
-}
-
-interface OrderSummary {
-  total: number;
-  delivered: number;
-  processing: number;
-  cancelled: number;
-  returned: number;
-  returnRate: number;
-  cancellationRate: number;
-}
+const TABS: { value: UiStatusGroup | "ALL"; label: string }[] = [
+  { value: "ALL", label: "Tất cả" }, { value: "PENDING_PAYMENT", label: "Chờ thanh toán" }, { value: "TO_SHIP", label: "Chờ xử lý" },
+  { value: "SHIPPING", label: "Đang giao" }, { value: "DELIVERED", label: "Đã giao" }, { value: "CANCELLED", label: "Đã huỷ" },
+];
 
 export default function OrdersPage() {
-  const { selectedShopId } = useShopStore();
-  const fetchWithAuth = useApiClient();
-  const { from, to } = useDateRange();
-
-  const { data: summary, isLoading: summaryLoading } = useQuery({
-    queryKey: ["orders-summary", selectedShopId, from, to],
-    queryFn: () =>
-      fetchWithAuth<OrderSummary>(
-        `/orders/summary?shopId=${selectedShopId}&from=${from}&to=${to}`
-      ),
-    enabled: !!selectedShopId,
-    staleTime: 60_000,
-    placeholderData: { total: 0, delivered: 0, processing: 0, cancelled: 0, returned: 0, returnRate: 0, cancellationRate: 0 },
-  });
-
-  const { data: trend, isLoading: trendLoading } = useQuery({
-    queryKey: ["orders-trend", selectedShopId, from, to],
-    queryFn: () =>
-      fetchWithAuth<{ data: { date: string; delivered: number; processing: number; cancelled: number; returned: number }[] }>(
-        `/orders/trend?shopId=${selectedShopId}&from=${from}&to=${to}`
-      ),
-    enabled: !!selectedShopId,
-    staleTime: 60_000,
-    placeholderData: { data: [] },
-  });
-
-  const s = summary ?? { total: 0, delivered: 0, processing: 0, cancelled: 0, returned: 0, returnRate: 0, cancellationRate: 0 };
-  const deliveryRate = s.total > 0 ? ((s.delivered / s.total) * 100).toFixed(1) : "0";
-
+  const [status, setStatus] = useState<UiStatusGroup | "ALL">("ALL");
+  const [q, setQ] = useState("");
+  const [cod, setCod] = useState("");
+  const [page, setPage] = useState(1);
+  const data = useApi<OrderListDto>("/orders", { status: status === "ALL" ? undefined : status, q: q || undefined, cod: cod || undefined, page, pageSize: 25 });
+  const d = data.data;
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">Theo dõi đơn hàng</h1>
-        <p className="text-sm text-gray-500 mt-1">Phân tích trạng thái đơn hàng và tỷ lệ hoàn/hủy</p>
+    <>
+      <PageHeader title="Đơn hàng" subtitle="Đồng bộ từ TikTok Shop theo update_time · webhook đổi trạng thái đồng bộ sớm" />
+      <Tabs value={status} onChange={(v) => { setStatus(v); setPage(1); }} items={TABS.map((t) => ({ value: t.value, label: <>{t.label}<span className="ml-1 rounded-full bg-gray-100 px-1.5 text-[11px]">{d ? formatNumber(d.statusCounts[t.value]) : "…"}</span></> }))} />
+      <div className="flex flex-wrap gap-2">
+        <input id="order-q" className="w-72 max-w-full rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm" placeholder="Tìm mã đơn hoặc mã vận đơn" value={q} onChange={(e) => { setQ(e.target.value); setPage(1); }} />
+        <select id="order-cod" className="rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-sm" value={cod} onChange={(e) => { setCod(e.target.value); setPage(1); }}>
+          <option value="">Mọi hình thức</option><option value="true">COD</option><option value="false">Thanh toán online</option>
+        </select>
       </div>
-
-      {/* KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <MetricCard
-          label="Tổng đơn hàng"
-          value={s.total.toLocaleString("vi-VN")}
-          icon={<Package className="w-5 h-5 text-blue-500" />}
-          loading={summaryLoading}
-        />
-        <MetricCard
-          label="Đã giao thành công"
-          value={`${s.delivered.toLocaleString("vi-VN")} (${deliveryRate}%)`}
-          icon={<CheckCircle2 className="w-5 h-5 text-green-500" />}
-          loading={summaryLoading}
-        />
-        <MetricCard
-          label="Đã hủy"
-          value={`${s.cancelled.toLocaleString("vi-VN")} (${(s.cancellationRate * 100).toFixed(1)}%)`}
-          icon={<XCircle className="w-5 h-5 text-red-500" />}
-          loading={summaryLoading}
-        />
-        <MetricCard
-          label="Hoàn hàng"
-          value={`${s.returned.toLocaleString("vi-VN")} (${(s.returnRate * 100).toFixed(1)}%)`}
-          icon={<RotateCcw className="w-5 h-5 text-amber-500" />}
-          loading={summaryLoading}
-        />
-      </div>
-
-      {/* Chart */}
-      <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6">
-        <h2 className="text-base font-semibold text-gray-800 mb-4">Xu hướng đơn hàng theo ngày</h2>
-        {trendLoading ? (
-          <div className="h-[280px] flex items-center justify-center text-gray-400 text-sm">Đang tải...</div>
-        ) : (trend?.data?.length ?? 0) === 0 ? (
-          <div className="h-[280px] flex items-center justify-center text-gray-400 text-sm">Chưa có dữ liệu trong kỳ này</div>
-        ) : (
-          <OrderStatusChart data={trend!.data} />
-        )}
-      </div>
-
-      {/* In-progress orders notice */}
-      {s.processing > 0 && (
-        <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 flex items-center gap-3">
-          <Clock className="w-5 h-5 text-blue-500 shrink-0" />
-          <div>
-            <p className="text-sm font-semibold text-blue-800">
-              {s.processing.toLocaleString("vi-VN")} đơn đang xử lý
-            </p>
-            <p className="text-xs text-blue-600 mt-0.5">
-              Bao gồm đơn chờ lấy hàng, đang vận chuyển
-            </p>
+      {data.error && <ErrorBox error={data.error} onRetry={() => data.refetch()} />}
+      {!d && !data.error && <Loading />}
+      {d && !d.items.length && <Empty title="Không có đơn phù hợp">Thử đổi khoảng thời gian hoặc bộ lọc.</Empty>}
+      {d && d.items.length > 0 && (
+        <>
+          <TableWrap>
+            <thead><tr><Th>Mã đơn</Th><Th>Thời gian</Th><Th>Sản phẩm</Th><Th>Tỉnh/thành</Th><Th right>Tổng tiền</Th><Th right>Thực nhận</Th><Th>Thanh toán</Th><Th>Vận chuyển</Th><Th>Trạng thái</Th><Th>Kết cục</Th></tr></thead>
+            <tbody>
+              {d.items.map((o) => (
+                <tr key={o.id} className="hover:bg-gray-50">
+                  <Td className="tabular-nums"><Link className="text-primary-700 hover:underline" href={`/orders/${o.id}`}>{o.tiktokOrderId}</Link></Td>
+                  <Td className="tabular-nums">{formatDateTime(o.createTime)}</Td>
+                  <Td><ProductCell title={o.firstItem.productName} image={o.firstItem.skuImage} sub={`${o.firstItem.skuName ?? ""}${o.itemCount > 1 ? ` · ${o.itemCount} sản phẩm` : ""}`} /></Td>
+                  <Td>{o.province ?? "—"}</Td>
+                  <Td right>{formatVND(o.totalAmount)}</Td>
+                  <Td right>{o.settlementAmount == null ? <span className="text-xs text-gray-400">Chưa đối soát</span> : formatVND(o.settlementAmount)}</Td>
+                  <Td><Tag>{o.isCod ? "COD" : "Online"}</Tag></Td>
+                  <Td>{o.shippingProvider ?? "—"}</Td>
+                  <Td><StatusBadge group={o.statusGroup} status={o.status} /></Td>
+                  <Td><OutcomeBadge outcome={o.outcome} /></Td>
+                </tr>
+              ))}
+            </tbody>
+          </TableWrap>
+          <div className="flex items-center gap-2 text-sm text-gray-500">
+            <span>{formatNumber((d.page - 1) * d.pageSize + 1)}–{formatNumber(Math.min(d.total, d.page * d.pageSize))} / {formatNumber(d.total)} đơn</span>
+            <div className="flex-1" />
+            <Button size="sm" disabled={page <= 1} onClick={() => setPage(page - 1)}>← Trước</Button>
+            <Button size="sm" disabled={page * d.pageSize >= d.total} onClick={() => setPage(page + 1)}>Sau →</Button>
           </div>
-        </div>
+        </>
       )}
-    </div>
+    </>
   );
 }

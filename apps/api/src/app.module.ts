@@ -1,44 +1,27 @@
-import { Module, MiddlewareConsumer, NestModule } from "@nestjs/common";
-import { ConfigModule } from "@nestjs/config";
-import { ThrottlerModule } from "@nestjs/throttler";
+import { Module } from "@nestjs/common";
 import { AuthModule } from "./auth/auth.module";
-import { MetricsModule } from "./metrics/metrics.module";
-import { AlertsModule } from "./alerts/alerts.module";
-import { TeamModule } from "./team/team.module";
-import { CampaignsModule } from "./campaigns/campaigns.module";
-import { BillingModule } from "./billing/billing.module";
-import { TiktokModule } from "./tiktok/tiktok.module";
-import { ExportModule } from "./export/export.module";
+import { SyncModule } from "./sync/sync.module";
+import { ConnectionsModule } from "./connections/connections.module";
+import { WebhooksModule } from "./webhooks/webhooks.module";
+import { PnlModule } from "./pnl/pnl.module";
+import { CostsModule } from "./costs/costs.module";
+import { ShopsModule } from "./shops/shops.module";
 import { OrdersModule } from "./orders/orders.module";
 import { ProductsModule } from "./products/products.module";
-import { CustomersModule } from "./customers/customers.module";
-import { ShopsModule } from "./shops/shops.module";
-import { ReportsModule } from "./reports/reports.module";
 import { AdsModule } from "./ads/ads.module";
-import { TenantMiddleware } from "./common/tenant.middleware";
+import { ReturnsModule } from "./returns/returns.module";
+import { FinanceModule } from "./finance/finance.module";
+import { CustomersModule } from "./customers/customers.module";
+import { AlertsModule } from "./alerts/alerts.module";
+import { ReportsModule } from "./reports/reports.module";
+import { MembersModule } from "./orgs/members.module";
+import { AdminModule } from "./admin/admin.module";
+import { BillingModule } from "./billing/billing.module";
 
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true }),
-    ThrottlerModule.forRoot([{ ttl: 60000, limit: 100 }]),
-    AuthModule,
-    MetricsModule,
-    AlertsModule,
-    TeamModule,
-    CampaignsModule,
-    BillingModule,
-    TiktokModule,
-    ExportModule,
-    OrdersModule,
-    ProductsModule,
-    CustomersModule,
-    ShopsModule,
-    ReportsModule,
-    AdsModule,
+    AuthModule, SyncModule, ConnectionsModule, WebhooksModule, PnlModule, CostsModule, ShopsModule, OrdersModule, ProductsModule,
+    AdsModule, ReturnsModule, FinanceModule, CustomersModule, AlertsModule, ReportsModule, MembersModule, AdminModule, BillingModule,
   ],
 })
-export class AppModule implements NestModule {
-  configure(consumer: MiddlewareConsumer) {
-    consumer.apply(TenantMiddleware).forRoutes("*");
-  }
-}
+export class AppModule {}
